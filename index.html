@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Ludus — 3D Game Editor</title>
+  <meta name="description" content="Three.js based 3D game creation platform with Unity-like workflow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Toolbar -->
+    <div id="toolbar"></div>
+    <!-- Main Editor Area -->
+    <div id="editor-main">
+      <!-- Left: Hierarchy -->
+      <div id="panel-hierarchy" class="panel">
+        <div class="panel-header">
+          <span class="panel-icon">📁</span>
+          <span class="panel-title">Hierarchy</span>
+        </div>
+        <div class="panel-content" id="hierarchy-content"></div>
+      </div>
+      <!-- Left Resize Handle -->
+      <div class="resize-handle resize-handle-v" id="resize-left"></div>
+      <!-- Center: Scene View -->
+      <div id="panel-scene" class="panel">
+        <div class="scene-toolbar" id="scene-toolbar"></div>
+        <div id="scene-container"></div>
+      </div>
+      <!-- Right Resize Handle -->
+      <div class="resize-handle resize-handle-v" id="resize-right"></div>
+      <!-- Right: Inspector -->
+      <div id="panel-inspector" class="panel">
+        <div class="panel-header">
+          <span class="panel-icon">🔧</span>
+          <span class="panel-title">Inspector</span>
+        </div>
+        <div class="panel-content" id="inspector-content"></div>
+      </div>
+    </div>
+    <!-- Bottom Panel -->
+    <div class="resize-handle resize-handle-h" id="resize-bottom"></div>
+    <div id="panel-bottom" class="panel">
+      <div class="panel-tabs">
+        <button class="panel-tab active" data-tab="console">Console</button>
+        <button class="panel-tab" data-tab="script">Script</button>
+        <button class="panel-tab" data-tab="project">Project</button>
+      </div>
+      <div class="panel-content" id="bottom-content">
+        <div id="console-output"></div>
+        <div id="script-editor-content" style="display:none; flex-direction:column; height:100%;"></div>
+        <div id="project-content" style="display:none; flex-direction:column; height:100%;"></div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
