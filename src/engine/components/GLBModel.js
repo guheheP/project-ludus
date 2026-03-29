@@ -126,6 +126,16 @@ export class GLBModel extends Component {
     // Apply shadow settings
     this._applyShadowSettings();
 
+    // Stamp entityId on all child meshes so SceneView raycaster can identify them
+    if (this.entity) {
+      const entityId = this.entity.id;
+      this.modelRoot.traverse((child) => {
+        if (child.isMesh) {
+          child.userData.entityId = entityId;
+        }
+      });
+    }
+
     // Auto-scale
     if (this.autoScale) {
       this._autoFitScale();

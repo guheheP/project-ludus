@@ -330,7 +330,7 @@ export class Inspector {
     enableCb.addEventListener('change', (e) => {
       e.stopPropagation();
       mod.enabled = e.target.checked;
-      pm.rebuild();
+      pm.scheduleRebuild();
       this.refresh();
       this._emitChange();
     });
@@ -395,13 +395,13 @@ export class Inspector {
       if (param.type === 'number') {
         modBody.appendChild(this._createNumberRow(param.name, mod[param.key], param.min, param.max, param.step, (val) => {
           mod.setParam(param.key, val);
-          pm.rebuild();
+          pm.scheduleRebuild();
           this._emitChange();
         }));
       } else if (param.type === 'select') {
         modBody.appendChild(this._createSelectRow(param.name, mod[param.key], param.options, (val) => {
           mod.setParam(param.key, val);
-          pm.rebuild();
+          pm.scheduleRebuild();
           this._emitChange();
         }));
       }

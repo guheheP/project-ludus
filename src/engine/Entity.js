@@ -6,6 +6,17 @@ import * as THREE from 'three';
  */
 let entityIdCounter = 0;
 
+/**
+ * Ensure the ID counter is above the given value.
+ * Call after loading/restoring entities to prevent ID collisions.
+ * @param {number} id
+ */
+export function ensureEntityIdAbove(id) {
+  if (id >= entityIdCounter) {
+    entityIdCounter = id + 1;
+  }
+}
+
 export class Entity {
   /** @type {number} */
   id;

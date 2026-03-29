@@ -44,5 +44,20 @@ export class PropertyCommand extends Command {
       if (!target) return;
     }
     target[parts[parts.length - 1]] = value;
+
+    // Trigger visual updates for ProceduralMesh after property change
+    if (this.componentType === 'ProceduralMesh' && component.scheduleRebuild) {
+      if (this.propertyPath.startsWith('shapeParams.')) {
+        component.scheduleRebuild();
+      } else if (this.propertyPath === 'color' && component.setColor) {
+        component.setColor(value);
+      } else if (this.propertyPath === 'metalness' && component.setMetalness) {
+        component.setMetalness(value);
+      } else if (this.propertyPath === 'roughness' && component.setRoughness) {
+        component.setRoughness(value);
+      } else if (this.propertyPath === 'wireframe' && component.setWireframe) {
+        component.setWireframe(value);
+      }
+    }
   }
 }

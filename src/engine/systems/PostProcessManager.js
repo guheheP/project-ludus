@@ -206,7 +206,7 @@ export class PostProcessManager {
   render() {
     if (this.enabled && this.composer) {
       this.composer.render();
-    } else if (this.renderer) {
+    } else if (this.renderer && this._renderPass) {
       // Fallback: render without post-processing
       this.renderer.render(
         this._renderPass.scene,

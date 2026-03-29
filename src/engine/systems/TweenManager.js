@@ -138,13 +138,11 @@ class Tween {
     }
 
     this._elapsed += dt;
-    let rawT = Math.min(this._elapsed / this.duration, 1);
+    const rawT = Math.min(this._elapsed / this.duration, 1);
 
-    if (this._reversed) rawT = 1 - rawT;
-
-    // Apply easing
+    // Apply easing — when reversed, flip t so animation plays backwards
     const easeFn = EASINGS[this.easing] || EASINGS.linear;
-    const t = easeFn(this._reversed ? 1 - rawT : rawT);
+    const t = this._reversed ? easeFn(1 - rawT) : easeFn(rawT);
 
     // Interpolate values
     for (const key of Object.keys(this._to)) {
@@ -158,11 +156,8 @@ class Tween {
       if (this._loop) {
         this._elapsed = 0;
         if (this._yoyo) {
+          // Only toggle direction, no need to swap from/to
           this._reversed = !this._reversed;
-          // Swap from/to for yoyo
-          const tmpFrom = { ...this._from };
-          this._from = { ...this._to };
-          this._to = tmpFrom;
         } else {
           // Reset target to start for loop
           for (const key of Object.keys(this._from)) {
@@ -174,10 +169,9 @@ class Tween {
 
       this._completed = true;
       // Ensure final values are set
-      if (!this._reversed) {
-        for (const key of Object.keys(this._to)) {
-          this.target[key] = this._to[key];
-        }
+      for (const key of Object.keys(this._to)) {
+        const finalT = this._reversed ? 0 : 1;
+        this.target[key] = this._from[key] + (this._to[key] - this._from[key]) * finalT;
       }
       if (this._onCompleteFn) this._onCompleteFn();
       return false;

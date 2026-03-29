@@ -23,6 +23,9 @@ export class ScriptRuntime {
   /** @type {Function|null} */
   onError = null;
 
+  /** @type {Function|null} Called on runtime errors to trigger auto-stop */
+  onCriticalError = null;
+
   /** @type {number} */
   elapsed = 0;
 
@@ -168,7 +171,15 @@ export class ScriptRuntime {
           this.scene.entityMap.forEach((e) => {
             if (e.name === name) found = e;
           });
-          return found;
+          if (!found) return null;
+          return this._wrapEntity(found);
+        },
+        findAll: (name) => {
+          const results = [];
+          this.scene.entityMap.forEach((e) => {
+            if (e.name === name) results.push(this._wrapEntity(e));
+          });
+          return results;
         },
       },
       input: {
@@ -278,6 +289,9 @@ export class ScriptRuntime {
       if (this.onError) {
         this.onError(`[${script.entity?.name}] Start error: ${err.message}`);
       }
+      if (this.onCriticalError) {
+        this.onCriticalError(`[${script.entity?.name}] Start error: ${err.message}`);
+      }
     }
   }
 
@@ -292,7 +306,31 @@ export class ScriptRuntime {
       if (this.onError) {
         this.onError(`[${script.entity?.name}] Runtime error: ${err.message}`);
       }
+      if (this.onCriticalError) {
+        this.onCriticalError(`[${script.entity?.name}] Runtime error: ${err.message}`);
+      }
     }
+  }
+
+  /**
+   * Create a sandboxed wrapper for an entity — used by scene.find() / scene.findAll()
+   * @param {import('../engine/Entity.js').Entity} entity
+   * @returns {object}
+   */
+  _wrapEntity(entity) {
+    const t = entity.getComponent('Transform');
+    return {
+      name: entity.name,
+      id: entity.id,
+      object3D: entity.object3D,
+      transform: t ? {
+        get position() { return t.position; },
+        get rotation() { return t.rotation; },
+        get scale() { return t.scale; },
+        setPosition(x, y, z) { t.setPosition(x, y, z); },
+        setScale(x, y, z) { t.setScale(x, y, z); },
+      } : null,
+    };
   }
 
   /**
@@ -309,8 +347,13 @@ export class ScriptRuntime {
       addImpulse: (x, y, z) => rb.addImpulse(x, y, z),
       setVelocity: (x, y, z) => rb.setVelocity(x, y, z),
       setAngularVelocity: (x, y, z) => rb.setAngularVelocity(x, y, z),
+      setTranslation: (x, y, z) => rb.setTranslation(x, y, z),
+      setRotation: (x, y, z, w) => rb.setRotation(x, y, z, w),
       get velocity() {
         return rb.getVelocity();
+      },
+      get angularVelocity() {
+        return rb.getAngularVelocity();
       },
     };
   }

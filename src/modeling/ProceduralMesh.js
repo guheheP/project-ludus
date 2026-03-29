@@ -308,11 +308,27 @@ export class ProceduralMesh extends Component {
   }
 
   /**
-   * Update a shape parameter and rebuild
+   * Schedule a rebuild on the next animation frame.
+   * Batches multiple parameter changes within one frame into a single rebuild.
+   */
+  scheduleRebuild() {
+    if (this._rebuildScheduled) return;
+    this._rebuildScheduled = true;
+    requestAnimationFrame(() => {
+      this._rebuildScheduled = false;
+      this.rebuild();
+    });
+  }
+
+  /** @type {boolean} */
+  _rebuildScheduled = false;
+
+  /**
+   * Update a shape parameter and schedule a debounced rebuild
    */
   setShapeParam(key, value) {
     this.shapeParams[key] = value;
-    this.rebuild();
+    this.scheduleRebuild();
   }
 
   serialize() {

@@ -97,6 +97,17 @@ export class AssetManager {
   }
 
   /**
+   * Revoke all cached Object URLs to free memory.
+   * Call when clearing the scene or disposing the editor.
+   */
+  revokeAll() {
+    for (const id in this.urls) {
+      URL.revokeObjectURL(this.urls[id]);
+    }
+    this.urls = {};
+  }
+
+  /**
    * Determine asset type based on extension
    * @param {string} filename 
    * @returns {string} 'image' | 'model' | 'audio' | 'unknown'

@@ -16,12 +16,17 @@ export class AudioSystem {
     this.threeListener = null;
 
     this.audioLoader = new THREE.AudioLoader();
+
+    /** @type {boolean} Flag to prevent dangling audio after dispose */
+    this._disposed = false;
   }
 
   /**
    * Called when entering play mode
    */
   async init() {
+    this._disposed = false;
+
     // Find AudioListener in scene
     let listenerEntity = null;
     this.scene.entityMap.forEach(e => {
@@ -38,8 +43,6 @@ export class AudioSystem {
     } else {
       // Default fallback listener if none found
       this.threeListener = new THREE.AudioListener();
-      // Wait, we need to attach it to something, typically camera
-      // But we will just ignore if not in scene for now or let Three handle default audio contexts
     }
 
     // Init Audio Sources concurrently
@@ -60,6 +63,9 @@ export class AudioSystem {
     const url = await this.assetManager.getAssetUrl(component.assetId);
     if (!url) return;
 
+    // Race condition guard: system may have been disposed while awaiting URL
+    if (this._disposed) return;
+
     if (!this.threeListener) return; // Cannot play without listener initialized
 
     const threeAudio = component.spatial 
@@ -75,6 +81,13 @@ export class AudioSystem {
 
     return new Promise((resolve, reject) => {
       this.audioLoader.load(url, (buffer) => {
+        // Race condition guard: check if component was disposed during async load
+        if (this._disposed || !component.threeAudio) {
+          // Clean up the orphaned audio object
+          if (threeAudio.parent) threeAudio.parent.remove(threeAudio);
+          return resolve();
+        }
+
         threeAudio.setBuffer(buffer);
         threeAudio.setLoop(component.loop);
         threeAudio.setVolume(component.volume);
@@ -91,12 +104,18 @@ export class AudioSystem {
    * Called to completely teardown audio when stopping play mode
    */
   dispose() {
+    this._disposed = true;
+
     this.scene.entityMap.forEach(entity => {
       if (entity.hasComponent('AudioSource')) {
         const comp = entity.getComponent('AudioSource');
         if (comp.threeAudio) {
           if (comp.threeAudio.isPlaying) {
             comp.threeAudio.stop();
+          }
+          // Release buffer reference to allow GC
+          if (comp.threeAudio.buffer) {
+            comp.threeAudio.setBuffer(null);
           }
           if (comp.threeAudio.parent) {
              comp.threeAudio.parent.remove(comp.threeAudio);

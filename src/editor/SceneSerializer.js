@@ -1,4 +1,5 @@
 import { Scene } from '../engine/Scene.js';
+import { ensureEntityIdAbove } from '../engine/Entity.js';
 import { Transform } from '../engine/components/Transform.js';
 import { MeshRenderer } from '../engine/components/MeshRenderer.js';
 import { Light } from '../engine/components/Light.js';
@@ -166,6 +167,7 @@ export class SceneSerializer {
     const entityMap = new Map();
     for (const entityData of data.entities) {
       const entity = scene.createEntity(entityData.name);
+      ensureEntityIdAbove(entity.id);
       entityMap.set(entityData.id, entity);
     }
 
@@ -383,6 +385,7 @@ export class SceneSerializer {
    */
   static deserializeEntity(entityData, scene, parent) {
     const entity = scene.createEntity(entityData.name, parent);
+    ensureEntityIdAbove(entity.id);
     const comps = entityData.components;
 
     if (comps.Transform) {

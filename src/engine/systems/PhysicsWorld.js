@@ -188,6 +188,9 @@ export class PhysicsWorld {
   step(dt) {
     if (!this.world || !this.initialized) return;
 
+    // Sync kinematic bodies: Transfer Three.js Transform → Rapier before stepping
+    this._syncKinematicBodies();
+
     this.accumulator += Math.min(dt, this.maxAccumulator);
 
     while (this.accumulator >= this.fixedDt) {
@@ -195,7 +198,7 @@ export class PhysicsWorld {
       this.accumulator -= this.fixedDt;
     }
 
-    // Sync Three.js objects from Rapier
+    // Sync Three.js objects from Rapier (for dynamic bodies)
     this._syncBodies();
 
     // Collect collision events
@@ -204,6 +207,24 @@ export class PhysicsWorld {
     // Update debug visualization
     if (this.debugVisible) {
       this._updateDebugDraw();
+    }
+  }
+
+  /**
+   * Synchronize Three.js Transform → Rapier for kinematic bodies.
+   * This allows scripts that modify transform.position directly to
+   * have their changes reflected in the physics simulation.
+   */
+  _syncKinematicBodies() {
+    for (const [, data] of this.bodyMap) {
+      const { rigidBody, entity } = data;
+      const rb = entity.getComponent('RigidBody');
+      if (!rb || rb.bodyType !== 'kinematic') continue;
+
+      const pos = entity.object3D.position;
+      const quat = entity.object3D.quaternion;
+      rigidBody.setNextKinematicTranslation({ x: pos.x, y: pos.y, z: pos.z });
+      rigidBody.setNextKinematicRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
     }
   }
 

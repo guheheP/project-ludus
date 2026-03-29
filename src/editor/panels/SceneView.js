@@ -112,6 +112,18 @@ export class SceneView {
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.setSize(0.8);
 
+    // Collect all gizmo materials to soften hover highlights each frame
+    this._gizmoMaterials = [];
+    this.transformControls.getHelper().traverse((child) => {
+      if (child.material) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        for (const m of mats) {
+          m.toneMapped = false;
+          if (!this._gizmoMaterials.includes(m)) this._gizmoMaterials.push(m);
+        }
+      }
+    });
+
     this.transformControls.addEventListener('dragging-changed', (event) => {
       this.orbitControls.enabled = !event.value;
       if (event.value) {
@@ -278,13 +290,47 @@ export class SceneView {
   }
 
   /**
-   * Render one frame
+   * Render one frame.
+   * Uses a 2-pass approach to prevent Bloom from making the gizmo glow:
+   *  Pass 1: main scene with post-processing (gizmo hidden)
+   *  Pass 2: gizmo only, rendered on top without post-processing
    */
   render() {
     if (!this.scene) return;
     this.orbitControls.update();
+
+    const gizmoHelper = this.transformControls.getHelper();
+
     if (this.postProcess && this.postProcess.enabled) {
+      // Pass 1: render scene WITH post-processing, gizmo hidden
+      gizmoHelper.visible = false;
       this.postProcess.render();
+
+      // Pass 2: render ONLY the gizmo on top (no Bloom / no post-processing)
+      // Hide everything except the gizmo
+      const hiddenChildren = [];
+      for (const child of this.scene.threeScene.children) {
+        if (child !== gizmoHelper && child.visible) {
+          child.visible = false;
+          hiddenChildren.push(child);
+        }
+      }
+      gizmoHelper.visible = true;
+
+      // Must null the background so it doesn't overwrite the post-processed image,
+      // and clear depth so the gizmo isn't occluded by the OutputPass quad.
+      const savedBg = this.scene.threeScene.background;
+      this.scene.threeScene.background = null;
+      this.renderer.autoClear = false;
+      this.renderer.clearDepth();
+      this.renderer.render(this.scene.threeScene, this.camera);
+      this.renderer.autoClear = true;
+      this.scene.threeScene.background = savedBg;
+
+      // Restore visibility
+      for (const child of hiddenChildren) {
+        child.visible = true;
+      }
     } else {
       this.renderer.render(this.scene.threeScene, this.camera);
     }

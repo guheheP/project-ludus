@@ -89,6 +89,52 @@ export class RigidBody extends Component {
     }
   }
 
+  /**
+   * Get angular velocity
+   * @returns {{x: number, y: number, z: number}}
+   */
+  getAngularVelocity() {
+    if (this._rapierBody) {
+      const v = this._rapierBody.angvel();
+      return { x: v.x, y: v.y, z: v.z };
+    }
+    return { x: 0, y: 0, z: 0 };
+  }
+
+  /**
+   * Set the translation (position) of the rigid body.
+   * For kinematic bodies uses setNextKinematicTranslation;
+   * for dynamic bodies uses setTranslation directly.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} z
+   */
+  setTranslation(x, y, z) {
+    if (!this._rapierBody) return;
+    if (this.bodyType === 'kinematic') {
+      this._rapierBody.setNextKinematicTranslation({ x, y, z });
+    } else {
+      this._rapierBody.setTranslation({ x, y, z }, true);
+    }
+  }
+
+  /**
+   * Set the rotation of the rigid body as a quaternion.
+   * For kinematic bodies uses setNextKinematicRotation.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} z
+   * @param {number} w
+   */
+  setRotation(x, y, z, w) {
+    if (!this._rapierBody) return;
+    if (this.bodyType === 'kinematic') {
+      this._rapierBody.setNextKinematicRotation({ x, y, z, w });
+    } else {
+      this._rapierBody.setRotation({ x, y, z, w }, true);
+    }
+  }
+
   serialize() {
     return {
       ...super.serialize(),

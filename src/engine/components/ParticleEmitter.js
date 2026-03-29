@@ -123,6 +123,7 @@ export class ParticleEmitter extends Component {
   _positions = null;
   _velocities = null;
   _colors = null;
+  _opacities = null;
   _sizes = null;
   _lives = null;
   _maxLives = null;
@@ -171,7 +172,8 @@ export class ParticleEmitter extends Component {
     const n = this.maxParticles;
     this._positions = new Float32Array(n * 3);
     this._velocities = new Float32Array(n * 3);
-    this._colors = new Float32Array(n * 4); // RGBA
+    this._colors = new Float32Array(n * 3); // RGB (Three.js vertexColors expects 'color' with 3 components)
+    this._opacities = new Float32Array(n);  // Per-particle opacity (applied via size fade)
     this._sizes = new Float32Array(n);
     this._lives = new Float32Array(n);     // current life
     this._maxLives = new Float32Array(n);  // max life
@@ -182,7 +184,7 @@ export class ParticleEmitter extends Component {
     // Create geometry
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this._positions, 3));
-    geometry.setAttribute('customColor', new THREE.BufferAttribute(this._colors, 4));
+    geometry.setAttribute('color', new THREE.BufferAttribute(this._colors, 3));
     geometry.setAttribute('size', new THREE.BufferAttribute(this._sizes, 1));
 
     // Create material
@@ -255,24 +257,25 @@ export class ParticleEmitter extends Component {
       this._positions[i * 3 + 1] += this._velocities[i * 3 + 1] * dt;
       this._positions[i * 3 + 2] += this._velocities[i * 3 + 2] * dt;
 
-      // Interpolate size
-      this._sizes[i] = THREE.MathUtils.lerp(this.startSize, this.endSize, t);
+      // Interpolate opacity
+      const a = THREE.MathUtils.lerp(this.startOpacity, this.endOpacity, t);
 
-      // Interpolate color
+      // Interpolate size (bake opacity into size so particles fade out visually)
+      this._sizes[i] = THREE.MathUtils.lerp(this.startSize, this.endSize, t) * Math.max(a, 0.01);
+
+      // Interpolate color (RGB, 3 components — matches 'color' attribute)
       const r = THREE.MathUtils.lerp(this._startCol.r, this._endCol.r, t);
       const g = THREE.MathUtils.lerp(this._startCol.g, this._endCol.g, t);
       const b = THREE.MathUtils.lerp(this._startCol.b, this._endCol.b, t);
-      const a = THREE.MathUtils.lerp(this.startOpacity, this.endOpacity, t);
-      this._colors[i * 4]     = r;
-      this._colors[i * 4 + 1] = g;
-      this._colors[i * 4 + 2] = b;
-      this._colors[i * 4 + 3] = a;
+      this._colors[i * 3]     = r;
+      this._colors[i * 3 + 1] = g;
+      this._colors[i * 3 + 2] = b;
     }
 
     // Update GPU buffers
     const geo = this._points.geometry;
     geo.attributes.position.needsUpdate = true;
-    geo.attributes.customColor.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
     geo.attributes.size.needsUpdate = true;
 
     // Update material blending
@@ -332,10 +335,9 @@ export class ParticleEmitter extends Component {
 
       // Initial color & size
       this._startCol.set(this.startColor);
-      this._colors[i * 4]     = this._startCol.r;
-      this._colors[i * 4 + 1] = this._startCol.g;
-      this._colors[i * 4 + 2] = this._startCol.b;
-      this._colors[i * 4 + 3] = this.startOpacity;
+      this._colors[i * 3]     = this._startCol.r;
+      this._colors[i * 3 + 1] = this._startCol.g;
+      this._colors[i * 3 + 2] = this._startCol.b;
       this._sizes[i] = this.startSize;
 
       return;

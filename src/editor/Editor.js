@@ -362,6 +362,11 @@ export class Editor {
       this.scriptRuntime = new ScriptRuntime(this.scene, this.inputManager, this.physics, this.audioSystem, this.uiSystem, this.tweenManager);
       this.scriptRuntime.onLog = (level, msg) => this._log(level, msg);
       this.scriptRuntime.onError = (msg) => this._log('error', msg);
+      this.scriptRuntime.onCriticalError = (msg) => {
+        this._log('error', `⛔ Script error — auto-stopping play mode: ${msg}`);
+        // Defer stop to avoid re-entrant issues mid-update loop
+        setTimeout(() => this._stop(), 0);
+      };
       this.scriptRuntime.start();
     } else if (this.mode === 'pause') {
       // Resume from pause
@@ -401,6 +406,18 @@ export class Editor {
       this.uiSystem.dispose();
       this.uiSystem = null;
     }
+
+    // Kill all active tweens so they don't leak into edit mode
+    if (this.tweenManager) {
+      this.tweenManager.killAll();
+    }
+
+    // Reset all Animators so _elapsed doesn't carry over to next Play
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('Animator')) {
+        entity.getComponent('Animator').reset();
+      }
+    });
 
     // Reset physics
     if (this.physics) {
@@ -688,6 +705,23 @@ export class Editor {
       entity.addComponent(glb);
       // Async load
       glb.loadFromAssetManager(this.assetManager).catch(() => {});
+    }
+
+    // ParticleEmitter
+    if (src.hasComponent('ParticleEmitter')) {
+      const srcPE = src.getComponent('ParticleEmitter');
+      const pe = new ParticleEmitter();
+      pe.deserialize(srcPE.serialize());
+      entity.addComponent(pe);
+      pe.init();
+    }
+
+    // Animator
+    if (src.hasComponent('Animator')) {
+      const srcAnim = src.getComponent('Animator');
+      const anim = new Animator();
+      anim.deserialize(srcAnim.serialize());
+      entity.addComponent(anim);
     }
 
     this.hierarchy.refresh();
@@ -1037,7 +1071,7 @@ function update(dt) {
   async _loadExternalScripts() {
     if (!this.projectManager.isOpen) return;
 
-    this.scene.entityMap.forEach(async (entity) => {
+    for (const [, entity] of this.scene.entityMap) {
       if (entity.hasComponent('Script')) {
         const script = entity.getComponent('Script');
         if (script.filePath) {
@@ -1047,7 +1081,7 @@ function update(dt) {
           }
         }
       }
-    });
+    }
   }
 
   /**
@@ -1142,7 +1176,7 @@ function update(dt) {
     if (!this.projectManager.isOpen) return;
 
     // Save scripts as external files
-    this.scene.entityMap.forEach(async (entity) => {
+    for (const [, entity] of this.scene.entityMap) {
       if (entity.hasComponent('Script')) {
         const script = entity.getComponent('Script');
         // Auto-assign filePath if not set
@@ -1151,7 +1185,7 @@ function update(dt) {
         }
         await this.projectManager.saveScript(script.filePath, script.code);
       }
-    });
+    }
 
     // Serialize and save scene
     const sceneData = SceneSerializer.serialize(this.scene, {
@@ -1432,7 +1466,10 @@ function update(dt) {
     // Prevent parenting to self or own descendant
     let check = newParent;
     while (check) {
-      if (check === entity) return;
+      if (check === entity) {
+        this._log('warn', `Cannot move "${entity.name}" into its own descendant "${newParent.name}"`);
+        return;
+      }
       check = check.parent;
     }
     const cmd = new ReparentCommand(this.scene, entity, newParent, index);
@@ -1471,5 +1508,22 @@ function update(dt) {
 
     output.appendChild(line);
     output.scrollTop = output.scrollHeight;
+  }
+
+  /**
+   * Dispose the entire editor — clean up event listeners, renderer, etc.
+   * Call when the editor is being unmounted or the page is unloaded.
+   */
+  dispose() {
+    if (this.mode !== 'edit') {
+      this._stop();
+    }
+    if (this.inputManager) {
+      this.inputManager.dispose();
+      this.inputManager = null;
+    }
+    if (this.sceneView) {
+      this.sceneView.dispose();
+    }
   }
 }
