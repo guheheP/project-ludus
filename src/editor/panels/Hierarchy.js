@@ -17,6 +17,12 @@ export class Hierarchy {
   /** @type {Function|null} */
   onContextMenu = null;
 
+  /** @type {Function|null} Called when entity is reparented via D&D */
+  onReparent = null;
+
+  /** @type {number|null} Entity ID being dragged */
+  _dragEntityId = null;
+
   /** @type {Set<number>} */
   expandedIds = new Set();
 
@@ -137,6 +143,89 @@ export class Hierarchy {
       }
     });
 
+    // Drag & Drop (not for Scene root)
+    if (entity !== this.scene?.root) {
+      item.draggable = true;
+      item.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+        this._dragEntityId = entity.id;
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(entity.id));
+      });
+      item.addEventListener('dragend', () => {
+        this._dragEntityId = null;
+        item.classList.remove('dragging');
+        // Remove all drop indicators
+        this.container.querySelectorAll('.drop-above,.drop-below,.drop-into').forEach(el => {
+          el.classList.remove('drop-above', 'drop-below', 'drop-into');
+        });
+      });
+    }
+
+    // Drop target (all items including root)
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this._dragEntityId === entity.id) return;
+      e.dataTransfer.dropEffect = 'move';
+
+      // Remove previous indicators
+      this.container.querySelectorAll('.drop-above,.drop-below,.drop-into').forEach(el => {
+        el.classList.remove('drop-above', 'drop-below', 'drop-into');
+      });
+
+      // Determine drop zone (top 25% = above, bottom 25% = below, middle = into)
+      const rect = item.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const h = rect.height;
+
+      if (entity === this.scene?.root) {
+        item.classList.add('drop-into');
+      } else if (y < h * 0.25) {
+        item.classList.add('drop-above');
+      } else if (y > h * 0.75) {
+        item.classList.add('drop-below');
+      } else {
+        item.classList.add('drop-into');
+      }
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drop-above', 'drop-below', 'drop-into');
+    });
+
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      item.classList.remove('drop-above', 'drop-below', 'drop-into');
+
+      const dragId = parseInt(e.dataTransfer.getData('text/plain'));
+      if (isNaN(dragId) || dragId === entity.id) return;
+
+      const dragEntity = this.scene?.getEntityById(dragId);
+      if (!dragEntity) return;
+
+      const rect = item.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const h = rect.height;
+
+      if (this.onReparent) {
+        if (entity === this.scene?.root || (y >= h * 0.25 && y <= h * 0.75)) {
+          // Drop into: make child
+          this.onReparent(dragEntity, entity, -1);
+          this.expandedIds.add(entity.id);
+        } else {
+          // Drop above/below: same parent, reorder
+          const parent = entity.parent || this.scene.root;
+          const siblings = parent.children;
+          let targetIndex = siblings.indexOf(entity);
+          if (y > h * 0.75) targetIndex++;
+          this.onReparent(dragEntity, parent, targetIndex);
+        }
+      }
+    });
+
     parent.appendChild(item);
 
     // Render children if expanded
@@ -161,6 +250,9 @@ export class Hierarchy {
       return '💡';
     }
     if (entity.hasComponent('Camera')) return '🎥';
+    if (entity.hasComponent('ParticleEmitter')) return '✨';
+    if (entity.hasComponent('Animator')) return '🎬';
+    if (entity.hasComponent('GLBModel')) return '🏗️';
     if (entity.hasComponent('RigidBody') && entity.hasComponent('ProceduralMesh')) return '⚛️';
     if (entity.hasComponent('Script') && entity.hasComponent('ProceduralMesh')) return '📝';
     if (entity.hasComponent('ProceduralMesh')) return '🔷';

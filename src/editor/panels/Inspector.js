@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GEOMETRY_TYPES } from '../../engine/components/MeshRenderer.js';
 import { MODIFIER_TYPES, SHAPE_PARAMS } from '../../modeling/ProceduralMesh.js';
+import { PARTICLE_PRESETS } from '../../engine/components/ParticleEmitter.js';
+import { ANIMATION_TYPES } from '../../engine/components/Animator.js';
 
 /**
  * Inspector Panel — Property editor for selected entity
@@ -18,6 +20,12 @@ export class Inspector {
 
   /** @type {Function|null} */
   onModifierChange = null;
+
+  /** @type {Function|null} Called when a component is removed */
+  onRemoveComponent = null;
+
+  /** @type {import('../../engine/systems/PostProcessManager.js').PostProcessManager|null} */
+  postProcess = null;
 
   constructor(container) {
     this.container = container;
@@ -86,12 +94,37 @@ export class Inspector {
       this._renderUICanvas();
     }
 
+    // GLBModel
+    if (this.entity.hasComponent('GLBModel')) {
+      this._renderGLBModel();
+    }
+
+    // ParticleEmitter
+    if (this.entity.hasComponent('ParticleEmitter')) {
+      this._renderParticleEmitter();
+    }
+
+    // Animator
+    if (this.entity.hasComponent('Animator')) {
+      this._renderAnimator();
+    }
+
     // Add Component button
     this._renderAddComponentButton();
   }
 
   _showEmpty() {
-    this.container.innerHTML = '<div class="inspector-empty">No entity selected</div>';
+    this.container.innerHTML = '';
+
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'inspector-empty';
+    emptyMsg.textContent = 'No entity selected';
+    this.container.appendChild(emptyMsg);
+
+    // Show post-processing settings when no entity selected
+    if (this.postProcess) {
+      this._renderPostProcess();
+    }
   }
 
   // =============================================
@@ -125,7 +158,7 @@ export class Inspector {
 
   _renderTransform() {
     const transform = this.entity.getComponent('Transform');
-    const section = this._createSection('⊞', 'Transform');
+    const section = this._createSection('⊞', 'Transform', 'Transform');
     const body = section.querySelector('.component-body');
 
     body.appendChild(this._createVec3Row('Position',
@@ -154,7 +187,7 @@ export class Inspector {
 
   _renderProceduralMesh() {
     const pm = this.entity.getComponent('ProceduralMesh');
-    const section = this._createSection('🔷', 'Procedural Mesh');
+    const section = this._createSection('🔷', 'Procedural Mesh', 'ProceduralMesh');
     const body = section.querySelector('.component-body');
 
     // Shape type
@@ -384,7 +417,7 @@ export class Inspector {
 
   _renderMeshRenderer() {
     const mr = this.entity.getComponent('MeshRenderer');
-    const section = this._createSection('🔷', 'Mesh Renderer');
+    const section = this._createSection('🔷', 'Mesh Renderer', 'MeshRenderer');
     const body = section.querySelector('.component-body');
 
     body.appendChild(this._createSelectRow('Shape', mr.geometryType,
@@ -417,7 +450,7 @@ export class Inspector {
 
   _renderLight() {
     const light = this.entity.getComponent('Light');
-    const section = this._createSection('💡', 'Light');
+    const section = this._createSection('💡', 'Light', 'Light');
     const body = section.querySelector('.component-body');
 
     body.appendChild(this._createSelectRow('Type', light.lightType,
@@ -442,7 +475,7 @@ export class Inspector {
 
   _renderScript() {
     const script = this.entity.getComponent('Script');
-    const section = this._createSection('📝', 'Script');
+    const section = this._createSection('📝', 'Script', 'Script');
     const body = section.querySelector('.component-body');
 
     // Filename
@@ -480,7 +513,7 @@ export class Inspector {
 
   _renderRigidBody() {
     const rb = this.entity.getComponent('RigidBody');
-    const section = this._createSection('⚛️', 'RigidBody');
+    const section = this._createSection('⚛️', 'RigidBody', 'RigidBody');
     const body = section.querySelector('.component-body');
 
     // Body Type
@@ -547,7 +580,7 @@ export class Inspector {
 
   _renderCollider() {
     const col = this.entity.getComponent('Collider');
-    const section = this._createSection('🔲', 'Collider');
+    const section = this._createSection('🔲', 'Collider', 'Collider');
     const body = section.querySelector('.component-body');
 
     // Shape
@@ -614,7 +647,7 @@ export class Inspector {
   // =============================================
 
   _renderAudioListener() {
-    const section = this._createSection('🎧', 'AudioListener');
+    const section = this._createSection('🎧', 'AudioListener', 'AudioListener');
     const body = section.querySelector('.component-body');
 
     const info = document.createElement('div');
@@ -626,7 +659,7 @@ export class Inspector {
   }
 
   _renderAudioSource() {
-    const section = this._createSection('🎵', 'AudioSource');
+    const section = this._createSection('🎵', 'AudioSource', 'AudioSource');
     const body = section.querySelector('.component-body');
 
     const src = this.entity.getComponent('AudioSource');
@@ -677,7 +710,7 @@ export class Inspector {
   }
 
   _renderUICanvas() {
-    const section = this._createSection('🖼️', 'UICanvas');
+    const section = this._createSection('🖼️', 'UICanvas', 'UICanvas');
     const body = section.querySelector('.component-body');
 
     const canvas = this.entity.getComponent('UICanvas');
@@ -691,6 +724,367 @@ export class Inspector {
     info.textContent = 'Enables game UI (HUD) via this.ui in scripts.';
     body.appendChild(info);
 
+    this.container.appendChild(section);
+  }
+
+  // =============================================
+  // GLBModel
+  // =============================================
+
+  _renderGLBModel() {
+    const glb = this.entity.getComponent('GLBModel');
+    const section = this._createSection('📦', 'GLB Model', 'GLBModel');
+    const body = section.querySelector('.component-body');
+
+    // File name
+    const fileInfo = document.createElement('div');
+    fileInfo.style.cssText = 'font-size:11px; color:var(--text-secondary); margin-bottom:8px; word-break:break-all;';
+    fileInfo.textContent = `📄 ${glb.fileName || 'No file'}`;
+    body.appendChild(fileInfo);
+
+    // Model stats
+    if (glb.loaded) {
+      const stats = document.createElement('div');
+      stats.style.cssText = 'font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.6;';
+      stats.innerHTML = `
+        <div>🔷 Meshes: <strong>${glb.stats.meshes}</strong></div>
+        <div>🔺 Triangles: <strong>${glb.stats.triangles.toLocaleString()}</strong></div>
+        <div>📍 Vertices: <strong>${glb.stats.vertices.toLocaleString()}</strong></div>
+        <div>🎨 Materials: <strong>${glb.stats.materials}</strong></div>
+      `;
+      body.appendChild(stats);
+    } else {
+      const loading = document.createElement('div');
+      loading.style.cssText = 'font-size:11px; color:var(--warning); margin-bottom:8px;';
+      loading.textContent = '⏳ Loading model...';
+      body.appendChild(loading);
+    }
+
+    // Separator
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:var(--border);margin:8px 0;';
+    body.appendChild(sep);
+
+    // Shadow settings
+    body.appendChild(this._createCheckboxRow('Cast Shadow', glb.castShadow, (val) => {
+      glb.setShadow(val, glb.receiveShadow);
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createCheckboxRow('Receive Shadow', glb.receiveShadow, (val) => {
+      glb.setShadow(glb.castShadow, val);
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createCheckboxRow('Auto Scale', glb.autoScale, (val) => {
+      glb.autoScale = val;
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Max Size', glb.maxSize, 0.1, 100, 0.5, (val) => {
+      glb.maxSize = val;
+      this._emitChange();
+    }));
+
+    // Animation section (if model has animations)
+    const clipNames = glb.listAnimations();
+    if (clipNames.length > 0) {
+      const animSep = document.createElement('div');
+      animSep.style.cssText = 'height:1px;background:var(--border);margin:8px 0;';
+      body.appendChild(animSep);
+
+      const animLabel = document.createElement('div');
+      animLabel.style.cssText = 'font-size:11px;color:var(--text-secondary);margin-bottom:4px;font-weight:600;';
+      animLabel.textContent = `🎬 Animations (${clipNames.length})`;
+      body.appendChild(animLabel);
+
+      // Clip selector
+      body.appendChild(this._createSelectRow('Clip', glb.currentAnimation || clipNames[0], clipNames, (val) => {
+        glb.playAnimation(val);
+        this._emitChange();
+        this.refresh();
+      }));
+
+      // Play/Stop
+      const ctrlRow = document.createElement('div');
+      ctrlRow.style.cssText = 'display:flex;gap:4px;padding:4px 0;';
+      const playBtn = this._createSmallBtn(glb.animPlaying ? '⏸' : '▶', glb.animPlaying ? 'Stop' : 'Play', () => {
+        if (glb.animPlaying) {
+          glb.stopAnimation();
+        } else {
+          glb.playAnimation(glb.currentAnimation || clipNames[0]);
+        }
+        this._emitChange();
+        this.refresh();
+      });
+      ctrlRow.appendChild(playBtn);
+      body.appendChild(ctrlRow);
+
+      // Loop toggle
+      body.appendChild(this._createCheckboxRow('Loop', glb.animLoop, (val) => {
+        glb.animLoop = val;
+        this._emitChange();
+      }));
+    }
+
+    this.container.appendChild(section);
+  }
+
+  // =============================================
+  // ParticleEmitter
+  // =============================================
+
+  _renderParticleEmitter() {
+    const pe = this.entity.getComponent('ParticleEmitter');
+    const section = this._createSection('✨', 'Particle Emitter', 'ParticleEmitter');
+    const body = section.querySelector('.component-body');
+
+    // Preset selector
+    const presetOptions = ['custom', ...Object.keys(PARTICLE_PRESETS)];
+    body.appendChild(this._createSelectRow('Preset', pe.preset, presetOptions, (val) => {
+      if (val !== 'custom') {
+        pe.applyPreset(val);
+        this._emitChange();
+        this.refresh();
+      }
+    }));
+
+    // Controls row
+    const ctrlRow = document.createElement('div');
+    ctrlRow.style.cssText = 'display:flex;gap:4px;padding:4px 0;margin-bottom:4px;';
+    const playBtn = this._createSmallBtn(pe.playing ? '⏸' : '▶', pe.playing ? 'Pause' : 'Play', () => {
+      if (pe.playing) pe.stop(); else pe.play();
+      this._emitChange(); this.refresh();
+    });
+    const burstBtn = this._createSmallBtn('💥', 'Burst (50)', () => { pe.burst(50); });
+    const resetBtn = this._createSmallBtn('🔄', 'Reset', () => { pe.reset(); });
+    ctrlRow.appendChild(playBtn);
+    ctrlRow.appendChild(burstBtn);
+    ctrlRow.appendChild(resetBtn);
+    body.appendChild(ctrlRow);
+
+    // Emission
+    body.appendChild(this._createNumberRow('Rate', pe.emissionRate, 0, 500, 1, (v) => {
+      pe.emissionRate = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Max', pe.maxParticles, 10, 5000, 10, (v) => {
+      pe.maxParticles = Math.round(v); pe.preset = 'custom'; pe._rebuild(); this._emitChange();
+    }));
+
+    // Lifetime
+    body.appendChild(this._createNumberRow('Life Min', pe.lifetime.min, 0.1, 30, 0.1, (v) => {
+      pe.lifetime.min = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Life Max', pe.lifetime.max, 0.1, 30, 0.1, (v) => {
+      pe.lifetime.max = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    // Speed
+    body.appendChild(this._createNumberRow('Spd Min', pe.speed.min, 0, 50, 0.1, (v) => {
+      pe.speed.min = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Spd Max', pe.speed.max, 0, 50, 0.1, (v) => {
+      pe.speed.max = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    // Direction
+    body.appendChild(this._createVec3Row('Direction',
+      pe.direction,
+      (axis, val) => { pe.direction[axis] = val; pe.preset = 'custom'; this._emitChange(); }
+    ));
+
+    // Spread & Gravity
+    body.appendChild(this._createNumberRow('Spread', pe.spread, 0, 1, 0.05, (v) => {
+      pe.spread = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Gravity', pe.gravity, -20, 20, 0.1, (v) => {
+      pe.gravity = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    // Size
+    body.appendChild(this._createNumberRow('Size Start', pe.startSize, 0.01, 5, 0.01, (v) => {
+      pe.startSize = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Size End', pe.endSize, 0.0, 5, 0.01, (v) => {
+      pe.endSize = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    // Colors
+    body.appendChild(this._createColorRow('Color Start', pe.startColor, (v) => {
+      pe.startColor = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createColorRow('Color End', pe.endColor, (v) => {
+      pe.endColor = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    // Opacity
+    body.appendChild(this._createNumberRow('Opac Start', pe.startOpacity, 0, 1, 0.05, (v) => {
+      pe.startOpacity = v; pe.preset = 'custom'; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Opac End', pe.endOpacity, 0, 1, 0.05, (v) => {
+      pe.endOpacity = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    // Blending
+    body.appendChild(this._createSelectRow('Blending', pe.blending, ['additive', 'normal'], (v) => {
+      pe.blending = v; pe.preset = 'custom'; this._emitChange();
+    }));
+
+    this.container.appendChild(section);
+  }
+
+  // =============================================
+  // Animator
+  // =============================================
+
+  _renderAnimator() {
+    const anim = this.entity.getComponent('Animator');
+    const section = this._createSection('🎬', 'Animator', 'Animator');
+    const body = section.querySelector('.component-body');
+
+    // Type
+    body.appendChild(this._createSelectRow('Type', anim.animationType, ANIMATION_TYPES, (val) => {
+      anim.animationType = val;
+      anim._captureInitialState();
+      anim._elapsed = 0;
+      this._emitChange();
+    }));
+
+    // Controls
+    const ctrlRow = document.createElement('div');
+    ctrlRow.style.cssText = 'display:flex;gap:4px;padding:4px 0;margin-bottom:4px;';
+    const playBtn = this._createSmallBtn(anim.playing ? '⏸' : '▶', anim.playing ? 'Pause' : 'Play', () => {
+      anim.playing = !anim.playing;
+      this._emitChange(); this.refresh();
+    });
+    const resetBtn = this._createSmallBtn('🔄', 'Reset', () => {
+      anim.reset();
+    });
+    ctrlRow.appendChild(playBtn);
+    ctrlRow.appendChild(resetBtn);
+    body.appendChild(ctrlRow);
+
+    // Speed
+    body.appendChild(this._createNumberRow('Speed', anim.speed, 0, 20, 0.1, (v) => {
+      anim.speed = v; this._emitChange();
+    }));
+
+    // Amplitude (for float, pulse, orbit)
+    if (anim.animationType !== 'rotate') {
+      body.appendChild(this._createNumberRow('Amplitude', anim.amplitude, 0, 10, 0.1, (v) => {
+        anim.amplitude = v; this._emitChange();
+      }));
+    }
+
+    // Axis
+    body.appendChild(this._createSelectRow('Axis', anim.axis, ['x', 'y', 'z'], (val) => {
+      anim.axis = val;
+      anim._captureInitialState();
+      anim._elapsed = 0;
+      this._emitChange();
+    }));
+
+    this.container.appendChild(section);
+  }
+
+  // =============================================
+  // Post-Processing (scene-level settings)
+  // =============================================
+
+  _renderPostProcess() {
+    const pp = this.postProcess;
+
+    // Master toggle section
+    const section = document.createElement('div');
+    section.className = 'component-section';
+
+    const header = document.createElement('div');
+    header.className = 'component-header';
+    header.innerHTML = '<span>🎨 Post-Processing</span>';
+    section.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'component-body';
+
+    // Master enable
+    body.appendChild(this._createCheckboxRow('Enabled', pp.enabled, (v) => {
+      pp.enabled = v;
+    }));
+
+    // --- Bloom ---
+    const bloomLabel = document.createElement('div');
+    bloomLabel.style.cssText = 'font-size:11px;color:var(--accent);font-weight:600;margin:8px 0 4px;';
+    bloomLabel.textContent = '✦ Bloom';
+    body.appendChild(bloomLabel);
+
+    body.appendChild(this._createCheckboxRow('Enabled', pp.bloomEnabled, (v) => {
+      pp.bloomEnabled = v; pp.updateBloom();
+    }));
+    body.appendChild(this._createNumberRow('Strength', pp.bloomStrength, 0, 3, 0.05, (v) => {
+      pp.bloomStrength = v; pp.updateBloom();
+    }));
+    body.appendChild(this._createNumberRow('Radius', pp.bloomRadius, 0, 1, 0.05, (v) => {
+      pp.bloomRadius = v; pp.updateBloom();
+    }));
+    body.appendChild(this._createNumberRow('Threshold', pp.bloomThreshold, 0, 1, 0.05, (v) => {
+      pp.bloomThreshold = v; pp.updateBloom();
+    }));
+
+    // --- SSAO ---
+    const ssaoLabel = document.createElement('div');
+    ssaoLabel.style.cssText = 'font-size:11px;color:var(--accent);font-weight:600;margin:8px 0 4px;';
+    ssaoLabel.textContent = '🌑 SSAO';
+    body.appendChild(ssaoLabel);
+
+    body.appendChild(this._createCheckboxRow('Enabled', pp.ssaoEnabled, (v) => {
+      pp.ssaoEnabled = v; pp.updateSSAO();
+    }));
+    body.appendChild(this._createNumberRow('Radius', pp.ssaoRadius, 1, 32, 1, (v) => {
+      pp.ssaoRadius = v; pp.updateSSAO();
+    }));
+    body.appendChild(this._createNumberRow('Min Dist', pp.ssaoMinDistance, 0.001, 0.1, 0.001, (v) => {
+      pp.ssaoMinDistance = v; pp.updateSSAO();
+    }));
+    body.appendChild(this._createNumberRow('Max Dist', pp.ssaoMaxDistance, 0.01, 1, 0.01, (v) => {
+      pp.ssaoMaxDistance = v; pp.updateSSAO();
+    }));
+
+    // --- Vignette ---
+    const vigLabel = document.createElement('div');
+    vigLabel.style.cssText = 'font-size:11px;color:var(--accent);font-weight:600;margin:8px 0 4px;';
+    vigLabel.textContent = '🔲 Vignette';
+    body.appendChild(vigLabel);
+
+    body.appendChild(this._createCheckboxRow('Enabled', pp.vignetteEnabled, (v) => {
+      pp.vignetteEnabled = v; pp.updateVignette();
+    }));
+    body.appendChild(this._createNumberRow('Offset', pp.vignetteOffset, 0.5, 2, 0.05, (v) => {
+      pp.vignetteOffset = v; pp.updateVignette();
+    }));
+    body.appendChild(this._createNumberRow('Darkness', pp.vignetteDarkness, 0, 2, 0.05, (v) => {
+      pp.vignetteDarkness = v; pp.updateVignette();
+    }));
+
+    // --- Color Grading ---
+    const cgLabel = document.createElement('div');
+    cgLabel.style.cssText = 'font-size:11px;color:var(--accent);font-weight:600;margin:8px 0 4px;';
+    cgLabel.textContent = '🎛️ Color Grading';
+    body.appendChild(cgLabel);
+
+    body.appendChild(this._createCheckboxRow('Enabled', pp.colorGradingEnabled, (v) => {
+      pp.colorGradingEnabled = v; pp.updateColorGrading();
+    }));
+    body.appendChild(this._createNumberRow('Brightness', pp.brightness, -1, 1, 0.02, (v) => {
+      pp.brightness = v; pp.updateColorGrading();
+    }));
+    body.appendChild(this._createNumberRow('Contrast', pp.contrast, -1, 1, 0.02, (v) => {
+      pp.contrast = v; pp.updateColorGrading();
+    }));
+    body.appendChild(this._createNumberRow('Saturation', pp.saturation, -1, 1, 0.02, (v) => {
+      pp.saturation = v; pp.updateColorGrading();
+    }));
+
+    section.appendChild(body);
     this.container.appendChild(section);
   }
 
@@ -748,6 +1142,12 @@ export class Inspector {
     }
     if (!this.entity.hasComponent('UICanvas')) {
       items.push({ label: '🖼️ UICanvas', comp: 'UICanvas' });
+    }
+    if (!this.entity.hasComponent('ParticleEmitter')) {
+      items.push({ label: '✨ ParticleEmitter', comp: 'ParticleEmitter' });
+    }
+    if (!this.entity.hasComponent('Animator')) {
+      items.push({ label: '🎬 Animator', comp: 'Animator' });
     }
 
     if (items.length === 0) {
@@ -834,6 +1234,22 @@ export class Inspector {
         this._emitChange();
         this.refresh();
       });
+    } else if (type === 'ParticleEmitter') {
+      import('../../engine/components/ParticleEmitter.js').then(({ ParticleEmitter }) => {
+        const pe = new ParticleEmitter();
+        pe.applyPreset('fire');
+        this.entity.addComponent(pe);
+        pe.init();
+        this._emitChange();
+        this.refresh();
+      });
+    } else if (type === 'Animator') {
+      import('../../engine/components/Animator.js').then(({ Animator }) => {
+        const anim = new Animator();
+        this.entity.addComponent(anim);
+        this._emitChange();
+        this.refresh();
+      });
     }
   }
 
@@ -841,7 +1257,7 @@ export class Inspector {
   // UI Helper Methods
   // =============================================
 
-  _createSection(icon, title) {
+  _createSection(icon, title, componentType = null) {
     const section = document.createElement('div');
     section.className = 'component-section';
 
@@ -863,10 +1279,26 @@ export class Inspector {
     titleSpan.textContent = title;
     header.appendChild(titleSpan);
 
+    // Delete button (not for Transform)
+    if (componentType && componentType !== 'Transform') {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'component-delete-btn';
+      deleteBtn.textContent = '✕';
+      deleteBtn.title = `Remove ${title}`;
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.onRemoveComponent && this.entity) {
+          this.onRemoveComponent(this.entity, componentType);
+        }
+      });
+      header.appendChild(deleteBtn);
+    }
+
     const body = document.createElement('div');
     body.className = 'component-body';
 
-    header.addEventListener('click', () => {
+    header.addEventListener('click', (e) => {
+      if (e.target.classList.contains('component-delete-btn')) return;
       toggle.classList.toggle('open');
       body.classList.toggle('collapsed');
     });
@@ -881,29 +1313,44 @@ export class Inspector {
     row.className = 'prop-row';
 
     const lbl = document.createElement('span');
-    lbl.className = 'prop-label';
+    lbl.className = 'prop-label prop-label-draggable';
     lbl.textContent = label;
+    lbl.title = 'Drag to adjust all axes';
     row.appendChild(lbl);
 
     const value = document.createElement('div');
     value.className = 'prop-value';
 
+    const axisLabels = { x: 'X', y: 'Y', z: 'Z' };
+    const inputs = {};
     ['x', 'y', 'z'].forEach(axis => {
+      const group = document.createElement('div');
+      group.className = `prop-vec3-group prop-vec3-${axis}`;
+
+      const axisLbl = document.createElement('span');
+      axisLbl.className = `prop-vec3-label prop-vec3-label-${axis}`;
+      axisLbl.textContent = axisLabels[axis];
+      group.appendChild(axisLbl);
+
       const input = document.createElement('input');
       input.type = 'number';
-      input.className = `prop-input prop-input-${axis}`;
+      input.className = 'prop-input prop-input-compact';
       input.value = parseFloat(vec[axis]).toFixed(2);
       input.step = '0.1';
       input.addEventListener('change', (e) => {
         onChange(axis, parseFloat(e.target.value) || 0);
       });
-      this._addDragBehavior(input, (delta) => {
-        const newVal = parseFloat(input.value) + delta * 0.01;
+      this._addDragBehavior(input, 0.01, (newVal) => {
         input.value = newVal.toFixed(2);
         onChange(axis, newVal);
       });
-      value.appendChild(input);
+      inputs[axis] = input;
+      group.appendChild(input);
+      value.appendChild(group);
     });
+
+    // Label drag adjusts all axes together
+    this._addLabelDragBehavior(lbl, inputs, 0.01, onChange);
 
     row.appendChild(value);
     return row;
@@ -914,8 +1361,9 @@ export class Inspector {
     row.className = 'prop-row';
 
     const lbl = document.createElement('span');
-    lbl.className = 'prop-label';
+    lbl.className = 'prop-label prop-label-draggable';
     lbl.textContent = label;
+    lbl.title = 'Drag to adjust value';
     row.appendChild(lbl);
 
     const value = document.createElement('div');
@@ -929,8 +1377,21 @@ export class Inspector {
     input.max = max;
     input.step = step;
     input.addEventListener('change', (e) => {
-      onChange(parseFloat(e.target.value) || 0);
+      let val = parseFloat(e.target.value) || 0;
+      val = Math.max(min, Math.min(max, val));
+      onChange(val);
     });
+
+    // Drag on input
+    this._addDragBehavior(input, step, (newVal) => {
+      newVal = Math.max(min, Math.min(max, newVal));
+      input.value = newVal.toFixed(2);
+      onChange(newVal);
+    });
+
+    // Drag on label
+    this._addSingleLabelDragBehavior(lbl, input, step, min, max, onChange);
+
     value.appendChild(input);
 
     row.appendChild(value);
@@ -1066,31 +1527,140 @@ export class Inspector {
     return btn;
   }
 
-  _addDragBehavior(input, onChange) {
+  /**
+   * Add drag-to-adjust behavior on a number input field
+   * @param {HTMLInputElement} input
+   * @param {number} baseSensitivity - base delta per pixel
+   * @param {Function} onUpdate - called with new absolute value
+   */
+  _addDragBehavior(input, baseSensitivity, onUpdate) {
     let isDragging = false;
     let startX = 0;
+    let startValue = 0;
 
     input.addEventListener('mousedown', (e) => {
       if (document.activeElement === input) return;
       isDragging = true;
       startX = e.clientX;
+      startValue = parseFloat(input.value) || 0;
       input.style.cursor = 'ew-resize';
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
       e.preventDefault();
     });
 
-    window.addEventListener('mousemove', (e) => {
+    const onMove = (e) => {
       if (!isDragging) return;
-      const delta = e.clientX - startX;
-      startX = e.clientX;
-      onChange(delta);
-    });
+      const pixelDelta = e.clientX - startX;
 
-    window.addEventListener('mouseup', () => {
+      // Shift = fine (0.1x), normal (1x), Ctrl = fast (10x)
+      let sensitivity = baseSensitivity;
+      if (e.shiftKey) sensitivity *= 0.1;
+      if (e.ctrlKey) sensitivity *= 10;
+
+      const newVal = startValue + pixelDelta * sensitivity;
+      onUpdate(newVal);
+    };
+
+    const onUp = () => {
       if (isDragging) {
         isDragging = false;
         input.style.cursor = '';
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
       }
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * Add drag-to-adjust on a Vec3 label (adjusts all axes together)
+   */
+  _addLabelDragBehavior(label, inputs, baseSensitivity, onChange) {
+    let isDragging = false;
+    let startX = 0;
+    let startValues = {};
+
+    label.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startValues = {};
+      for (const axis of ['x', 'y', 'z']) {
+        startValues[axis] = parseFloat(inputs[axis].value) || 0;
+      }
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
     });
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      const pixelDelta = e.clientX - startX;
+      let sensitivity = baseSensitivity;
+      if (e.shiftKey) sensitivity *= 0.1;
+      if (e.ctrlKey) sensitivity *= 10;
+
+      for (const axis of ['x', 'y', 'z']) {
+        const newVal = startValues[axis] + pixelDelta * sensitivity;
+        inputs[axis].value = newVal.toFixed(2);
+        onChange(axis, newVal);
+      }
+    };
+
+    const onUp = () => {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * Add drag-to-adjust on a single number label
+   */
+  _addSingleLabelDragBehavior(label, input, baseSensitivity, min, max, onChange) {
+    let isDragging = false;
+    let startX = 0;
+    let startValue = 0;
+
+    label.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startValue = parseFloat(input.value) || 0;
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      const pixelDelta = e.clientX - startX;
+      let sensitivity = baseSensitivity;
+      if (e.shiftKey) sensitivity *= 0.1;
+      if (e.ctrlKey) sensitivity *= 10;
+
+      let newVal = startValue + pixelDelta * sensitivity;
+      newVal = Math.max(min, Math.min(max, newVal));
+      input.value = newVal.toFixed(2);
+      onChange(newVal);
+    };
+
+    const onUp = () => {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
   _emitChange() {

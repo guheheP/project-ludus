@@ -6,6 +6,9 @@ import { Light } from '../engine/components/Light.js';
 import { ScriptComponent, DEFAULT_SCRIPT } from '../engine/components/Script.js';
 import { RigidBody } from '../engine/components/RigidBody.js';
 import { Collider } from '../engine/components/Collider.js';
+import { GLBModel } from '../engine/components/GLBModel.js';
+import { ParticleEmitter } from '../engine/components/ParticleEmitter.js';
+import { Animator } from '../engine/components/Animator.js';
 import { ProceduralMesh } from '../modeling/ProceduralMesh.js';
 import { TwistModifier } from '../modeling/modifiers/Twist.js';
 import { SceneView } from './panels/SceneView.js';
@@ -26,7 +29,14 @@ import { AudioListener } from '../engine/components/AudioListener.js';
 import { AudioSource } from '../engine/components/AudioSource.js';
 import { UICanvas } from '../engine/components/UICanvas.js';
 import { UISystem } from '../engine/systems/UISystem.js';
+import { TweenManager } from '../engine/systems/TweenManager.js';
 import { Exporter } from './Exporter.js';
+import { ProjectManager } from './ProjectManager.js';
+import { UndoManager } from './UndoManager.js';
+import { AddEntityCommand, DeleteEntityCommand } from './commands/EntityCommands.js';
+import { TransformCommand } from './commands/TransformCommand.js';
+import { RemoveComponentCommand } from './commands/ComponentCommands.js';
+import { ReparentCommand } from './commands/ReparentCommand.js';
 
 const THREE_REVISION = THREE.REVISION;
 
@@ -76,6 +86,18 @@ export class Editor {
   /** @type {UISystem|null} */
   uiSystem = null;
 
+  /** @type {ProjectManager} */
+  projectManager;
+
+  /** @type {UndoManager} */
+  undoManager;
+
+  /** @type {TweenManager} */
+  tweenManager;
+
+  /** @type {object|null} Captured transform state before gizmo drag */
+  _gizmoOldState = null;
+
   /** @type {ProjectBrowser} */
   projectBrowser;
 
@@ -99,6 +121,21 @@ export class Editor {
     this.panelManager = new PanelManager();
     this.contextMenu = new ContextMenu();
 
+    // Project Manager (File System Access API)
+    this.projectManager = new ProjectManager();
+    this.projectManager.onLog = (level, msg) => this._log(level, msg);
+    this.projectManager.onStateChange = (isOpen, isDirty) => this._onProjectStateChange(isOpen, isDirty);
+    this.projectManager.onExternalChange = (changes) => this._onExternalFileChange(changes);
+
+    // Undo Manager
+    this.undoManager = new UndoManager();
+    this.undoManager.onStateChange = (canUndo, canRedo) => {
+      this.toolbar.setUndoState?.(canUndo, canRedo);
+    };
+
+    // Tween Manager
+    this.tweenManager = new TweenManager();
+
     // Asset Manager
     this.assetManager = new AssetManager();
     this.assetManager.init().then(() => {
@@ -115,6 +152,8 @@ export class Editor {
     this.sceneView.setScene(this.scene);
     this.sceneView.onSelectEntity = (entity) => this.selectEntity(entity);
     this.sceneView.onTransformChange = () => this._onTransformChanged();
+    this.sceneView.onTransformStart = () => this._onTransformStart();
+    this.sceneView.onTransformEnd = () => this._onTransformEnd();
 
     // Input manager (for scripts)
     this.inputManager = new InputManager(sceneContainer);
@@ -130,13 +169,22 @@ export class Editor {
     this.hierarchy.onContextMenu = (x, y, entity) => {
       this._showHierarchyContextMenu(x, y, entity);
     };
+    this.hierarchy.onReparent = (entity, newParent, index) => {
+      this.reparentEntity(entity, newParent, index);
+    };
 
     // Inspector
     const inspectorContent = document.getElementById('inspector-content');
     this.inspector = new Inspector(inspectorContent);
     this.inspector.onPropertyChange = () => {
       this.hierarchy.refresh();
+      this._markProjectDirty();
     };
+    this.inspector.onRemoveComponent = (entity, componentType) => {
+      this.removeComponent(entity, componentType);
+    };
+    // postProcess will be set after sceneView is created (below)
+    this.inspector.postProcess = this.sceneView.postProcess;
 
     // Toolbar
     const toolbarEl = document.getElementById('toolbar');
@@ -151,12 +199,16 @@ export class Editor {
     this.toolbar.onSave = () => this._saveScene();
     this.toolbar.onLoad = () => this._loadScene();
     this.toolbar.onExport = () => this._exportProject();
+    this.toolbar.onOpenProject = () => this._openProject();
+    this.toolbar.onUndo = () => { this.undoManager.undo(); this._afterUndoRedo(); };
+    this.toolbar.onRedo = () => { this.undoManager.redo(); this._afterUndoRedo(); };
 
     // Script Editor (in bottom panel)
     const scriptEditorContainer = document.getElementById('script-editor-content');
     this.scriptEditor = new ScriptEditor(scriptEditorContainer);
     this.scriptEditor.onScriptChange = (script) => {
       this._log('info', `Script updated: ${script.fileName}`);
+      this._onScriptEdited(script);
     };
 
     // Bottom panel tab switching
@@ -166,7 +218,13 @@ export class Editor {
     const projectContent = document.getElementById('project-content');
     if (projectContent) {
       this.projectBrowser = new ProjectBrowser(projectContent, this.assetManager);
+      this.projectBrowser.onAddModelToScene = (assetId, fileName) => {
+        this._addGLBModel(assetId, fileName);
+      };
     }
+
+    // SceneView drop handler for model assets
+    this._initSceneViewDrop();
 
     // Scene toolbar
     this._initSceneToolbar();
@@ -301,7 +359,7 @@ export class Editor {
       this.uiSystem.init(sceneContainer);
 
       // Create script runtime
-      this.scriptRuntime = new ScriptRuntime(this.scene, this.inputManager, this.physics, this.audioSystem, this.uiSystem);
+      this.scriptRuntime = new ScriptRuntime(this.scene, this.inputManager, this.physics, this.audioSystem, this.uiSystem, this.tweenManager);
       this.scriptRuntime.onLog = (level, msg) => this._log(level, msg);
       this.scriptRuntime.onError = (msg) => this._log('error', msg);
       this.scriptRuntime.start();
@@ -354,6 +412,7 @@ export class Editor {
       try {
         const data = JSON.parse(this._playSnapshot);
         SceneSerializer.deserialize(data, this.scene);
+        this._applyPostProcessFromScene();
         this.selectEntity(null);
         this.hierarchy.refresh();
       } catch (err) {
@@ -439,6 +498,13 @@ export class Editor {
       } else {
         transform.setPosition(0, 3, 0);
       }
+    } else if (type === 'particle') {
+      entity = this.scene.createEntity('Particle Emitter');
+      entity.addComponent(new Transform());
+      const pe = new ParticleEmitter();
+      pe.applyPreset('fire');
+      entity.addComponent(pe);
+      pe.init();
     } else {
       entity = this.scene.createEntity(names[type] || type);
       entity.addComponent(new Transform());
@@ -450,7 +516,62 @@ export class Editor {
     this.hierarchy.refresh();
     this.selectEntity(entity);
     this._log('info', `Created: ${entity.name}`);
+    this._markProjectDirty();
     return entity;
+  }
+
+  /**
+   * Add a GLB model entity to the scene
+   * @param {string} assetId
+   * @param {string} fileName
+   */
+  async _addGLBModel(assetId, fileName) {
+    const displayName = fileName.replace(/\.(glb|gltf)$/i, '');
+    const entity = this.scene.createEntity(displayName);
+    entity.addComponent(new Transform());
+
+    const glb = new GLBModel();
+    glb.assetId = assetId;
+    glb.fileName = fileName;
+    entity.addComponent(glb);
+
+    try {
+      await glb.loadFromAssetManager(this.assetManager);
+      this.hierarchy.refresh();
+      this.selectEntity(entity);
+      this._log('info', `Loaded model: ${fileName} (${glb.stats.triangles} tris, ${glb.stats.meshes} meshes)`);
+      this._markProjectDirty();
+    } catch (err) {
+      this._log('error', `Failed to load model: ${fileName}`);
+      this.scene.removeEntity(entity);
+    }
+  }
+
+  /**
+   * Initialize SceneView drop handler for asset drag & drop
+   */
+  _initSceneViewDrop() {
+    const container = this.sceneView.renderer.domElement;
+
+    container.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+
+    container.addEventListener('drop', (e) => {
+      e.preventDefault();
+      try {
+        const data = JSON.parse(e.dataTransfer.getData('application/json'));
+        if (data.type === 'asset' && data.assetType === 'model') {
+          const meta = this.assetManager.getAssetMeta(data.id);
+          if (meta) {
+            this._addGLBModel(data.id, meta.name);
+          }
+        }
+      } catch (err) {
+        // Not a JSON drag, ignore
+      }
+    });
   }
 
   /**
@@ -472,11 +593,13 @@ export class Editor {
 
   _deleteSelected() {
     if (!this.selectedEntity || this.selectedEntity === this.scene.root) return;
-    const name = this.selectedEntity.name;
-    this.scene.removeEntity(this.selectedEntity);
+    const entity = this.selectedEntity;
+    const cmd = new DeleteEntityCommand(this.scene, entity);
+    this.undoManager.execute(cmd);
     this.selectEntity(null);
     this.hierarchy.refresh();
-    this._log('info', `Deleted: ${name}`);
+    this._log('info', `Deleted: ${entity.name}`);
+    this._markProjectDirty();
   }
 
   _duplicateSelected() {
@@ -523,6 +646,48 @@ export class Editor {
       script.code = srcS.code;
       script.fileName = srcS.fileName;
       entity.addComponent(script);
+    }
+
+    if (src.hasComponent('RigidBody')) {
+      const srcRB = src.getComponent('RigidBody');
+      const rb = new RigidBody();
+      rb.deserialize(srcRB.serialize());
+      entity.addComponent(rb);
+    }
+
+    if (src.hasComponent('Collider')) {
+      const srcCol = src.getComponent('Collider');
+      const col = new Collider();
+      col.deserialize(srcCol.serialize());
+      entity.addComponent(col);
+    }
+
+    if (src.hasComponent('AudioListener')) {
+      const al = new AudioListener();
+      entity.addComponent(al);
+    }
+
+    if (src.hasComponent('AudioSource')) {
+      const srcAS = src.getComponent('AudioSource');
+      const as = new AudioSource();
+      as.deserialize(srcAS.serialize());
+      entity.addComponent(as);
+    }
+
+    if (src.hasComponent('UICanvas')) {
+      const srcUC = src.getComponent('UICanvas');
+      const uc = new UICanvas();
+      uc.deserialize(srcUC.serialize());
+      entity.addComponent(uc);
+    }
+
+    if (src.hasComponent('GLBModel')) {
+      const srcGLB = src.getComponent('GLBModel');
+      const glb = new GLBModel();
+      glb.deserialize(srcGLB.serialize());
+      entity.addComponent(glb);
+      // Async load
+      glb.loadFromAssetManager(this.assetManager).catch(() => {});
     }
 
     this.hierarchy.refresh();
@@ -785,9 +950,21 @@ function update(dt) {
           }
           break;
         case 'z':
+          if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+            e.preventDefault();
+            this.undoManager.undo();
+            this._afterUndoRedo();
+          } else if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+            e.preventDefault();
+            this.undoManager.redo();
+            this._afterUndoRedo();
+          }
+          break;
+        case 'y':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            // Undo/Redo stub
+            this.undoManager.redo();
+            this._afterUndoRedo();
           }
           break;
         case 's':
@@ -823,27 +1000,298 @@ function update(dt) {
   }
 
   // =============================================
-  // Save / Load
+  // Project Management
   // =============================================
 
-  _saveScene() {
-    try {
-      SceneSerializer.downloadSceneJSON(this.scene);
-      this._log('info', 'Scene saved as JSON');
-    } catch (err) {
-      this._log('error', `Save failed: ${err.message}`);
+  async _openProject() {
+    const opened = await this.projectManager.openProject();
+    if (!opened) return;
+
+    // Try to load existing scene
+    const sceneData = await this.projectManager.loadScene();
+    if (sceneData) {
+      SceneSerializer.deserialize(sceneData, this.scene);
+      this._applyPostProcessFromScene();
+      // Load external script files
+      await this._loadExternalScripts();
+      // Reload GLB models
+      await this._reloadGLBModels();
+      // Initialize particle emitters
+      this._initParticleEmitters();
+      this.selectEntity(null);
+      this.hierarchy.refresh();
+      this._log('info', 'Project scene loaded from disk');
+    } else {
+      // First time — save current scene to project
+      await this._saveSceneToProject();
+      this._log('info', 'Default scene saved to new project');
+    }
+
+    // Start watching for external changes (AI IDE edits)
+    this.projectManager.startWatching();
+  }
+
+  /**
+   * Load script code from external files for all entities with filePath
+   */
+  async _loadExternalScripts() {
+    if (!this.projectManager.isOpen) return;
+
+    this.scene.entityMap.forEach(async (entity) => {
+      if (entity.hasComponent('Script')) {
+        const script = entity.getComponent('Script');
+        if (script.filePath) {
+          const code = await this.projectManager.loadScript(script.filePath);
+          if (code !== null) {
+            script.code = code;
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Reload all GLBModel components in the scene
+   */
+  async _reloadGLBModels() {
+    const promises = [];
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('GLBModel')) {
+        const glb = entity.getComponent('GLBModel');
+        if (glb.assetId && !glb.loaded) {
+          promises.push(
+            glb.loadFromAssetManager(this.assetManager)
+              .then(() => this._log('info', `Reloaded model: ${glb.fileName}`))
+              .catch(() => this._log('warn', `Failed to reload model: ${glb.fileName}`))
+          );
+        }
+      }
+    });
+    if (promises.length > 0) {
+      await Promise.all(promises);
+      this.hierarchy.refresh();
+    }
+  }
+
+  /**
+   * Initialize all ParticleEmitter components in the scene (after deserialize)
+   */
+  _initParticleEmitters() {
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('ParticleEmitter')) {
+        const pe = entity.getComponent('ParticleEmitter');
+        if (!pe._initialized) {
+          pe.init();
+        }
+      }
+    });
+  }
+
+  /**
+   * Update all particle emitters each frame
+   * @param {number} dt
+   */
+  _updateParticles(dt) {
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('ParticleEmitter')) {
+        const pe = entity.getComponent('ParticleEmitter');
+        if (!pe._initialized) pe.init();
+        pe.update(dt);
+      }
+    });
+  }
+
+  /**
+   * Update all Animator components each frame
+   * @param {number} dt
+   */
+  _updateAnimators(dt) {
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('Animator')) {
+        entity.getComponent('Animator').update(dt);
+      }
+    });
+  }
+
+  /**
+   * Update all GLBModel animation mixers each frame
+   * @param {number} dt
+   */
+  _updateGLBAnimations(dt) {
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('GLBModel')) {
+        entity.getComponent('GLBModel').updateAnimation(dt);
+      }
+    });
+  }
+
+  /**
+   * Apply post-process settings stored from deserialized scene data
+   */
+  _applyPostProcessFromScene() {
+    if (this.scene._postProcessData && this.sceneView?.postProcess) {
+      this.sceneView.postProcess.deserialize(this.scene._postProcessData);
+      delete this.scene._postProcessData;
+    }
+  }
+
+  /**
+   * Save scene and all external scripts to project folder
+   */
+  async _saveSceneToProject() {
+    if (!this.projectManager.isOpen) return;
+
+    // Save scripts as external files
+    this.scene.entityMap.forEach(async (entity) => {
+      if (entity.hasComponent('Script')) {
+        const script = entity.getComponent('Script');
+        // Auto-assign filePath if not set
+        if (!script.filePath) {
+          script.filePath = this._generateScriptFileName(entity, script);
+        }
+        await this.projectManager.saveScript(script.filePath, script.code);
+      }
+    });
+
+    // Serialize and save scene
+    const sceneData = SceneSerializer.serialize(this.scene, {
+      postProcess: this.sceneView?.postProcess
+    });
+    await this.projectManager.saveScene(sceneData);
+  }
+
+  /**
+   * Generate a unique script file name for an entity
+   */
+  _generateScriptFileName(entity, script) {
+    // Use entity name, sanitized for file system
+    const baseName = entity.name
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_')
+      .replace(/_+/g, '_');
+    return `${baseName}.js`;
+  }
+
+  /**
+   * Mark project as dirty (triggers auto-save)
+   */
+  _markProjectDirty() {
+    if (!this.projectManager.isOpen) return;
+    this.projectManager.markDirty(() => this._saveSceneToProject());
+  }
+
+  /**
+   * Handle script content changes from the script editor
+   */
+  async _onScriptEdited(script) {
+    if (!this.projectManager.isOpen || !script.filePath) return;
+    await this.projectManager.saveScript(script.filePath, script.code);
+  }
+
+  /**
+   * Handle project state changes (open/close, dirty flag)
+   */
+  _onProjectStateChange(isOpen, isDirty) {
+    // Update toolbar indicator
+    this.toolbar.setProjectState?.(isOpen, isDirty);
+  }
+
+  /**
+   * Handle external file changes (AI IDE edits)
+   */
+  async _onExternalFileChange(changes) {
+    for (const change of changes) {
+      if (change.path.startsWith('scripts/') && change.type === 'modified') {
+        // Script file was modified externally
+        const scriptName = change.name;
+        this._log('info', `External change detected: ${scriptName}`);
+
+        // Find the entity that uses this script
+        this.scene.entityMap.forEach((entity) => {
+          if (entity.hasComponent('Script')) {
+            const script = entity.getComponent('Script');
+            if (script.filePath === scriptName) {
+              // Reload the script code
+              this.projectManager.loadScript(scriptName).then((code) => {
+                if (code !== null) {
+                  script.code = code;
+                  // Refresh script editor if this entity is selected
+                  if (this.selectedEntity === entity) {
+                    this.scriptEditor.setEntity(entity);
+                  }
+                  this._log('info', `Script reloaded: ${scriptName}`);
+                }
+              });
+            }
+          }
+        });
+      } else if (change.path.startsWith('scenes/') && change.type === 'modified') {
+        // Scene file was modified externally
+        this._log('info', `External scene change detected: ${change.name}`);
+        const sceneData = await this.projectManager.loadScene();
+        if (sceneData) {
+          SceneSerializer.deserialize(sceneData, this.scene);
+          this._applyPostProcessFromScene();
+          await this._loadExternalScripts();
+          this.selectEntity(null);
+          this.hierarchy.refresh();
+          this._log('info', 'Scene reloaded from external change');
+        }
+      }
+    }
+  }
+
+  // =============================================
+  // Save / Load (File Dialog Fallback)
+  // =============================================
+
+  async _saveScene() {
+    if (this.projectManager.isOpen) {
+      // Save to project folder
+      try {
+        await this._saveSceneToProject();
+        this._log('info', 'Scene saved to project');
+      } catch (err) {
+        this._log('error', `Save failed: ${err.message}`);
+      }
+    } else {
+      // Fallback: download as JSON
+      try {
+        SceneSerializer.downloadSceneJSON(this.scene);
+        this._log('info', 'Scene saved as JSON (download)');
+      } catch (err) {
+        this._log('error', `Save failed: ${err.message}`);
+      }
     }
   }
 
   async _loadScene() {
-    try {
-      await SceneSerializer.loadSceneJSON(this.scene);
-      this.selectEntity(null);
-      this.hierarchy.refresh();
-      this._log('info', 'Scene loaded successfully');
-    } catch (err) {
-      if (err.message !== 'No file selected') {
+    if (this.projectManager.isOpen) {
+      // Load from project folder
+      try {
+        const sceneData = await this.projectManager.loadScene();
+        if (sceneData) {
+          SceneSerializer.deserialize(sceneData, this.scene);
+          this._applyPostProcessFromScene();
+          await this._loadExternalScripts();
+          this.selectEntity(null);
+          this.hierarchy.refresh();
+          this._log('info', 'Scene loaded from project');
+        }
+      } catch (err) {
         this._log('error', `Load failed: ${err.message}`);
+      }
+    } else {
+      // Fallback: file dialog
+      try {
+        await SceneSerializer.loadSceneJSON(this.scene);
+        this.selectEntity(null);
+        this.hierarchy.refresh();
+        this._log('info', 'Scene loaded successfully');
+      } catch (err) {
+        if (err.message !== 'No file selected') {
+          this._log('error', `Load failed: ${err.message}`);
+        }
       }
     }
   }
@@ -900,6 +1348,20 @@ function update(dt) {
         fpsTime = 0;
       }
 
+      // Update particle systems (always, for editor preview)
+      this._updateParticles(dt);
+
+      // Update animators (always, for editor preview)
+      this._updateAnimators(dt);
+
+      // Update GLB model animations
+      this._updateGLBAnimations(dt);
+
+      // Update tweens
+      if (this.tweenManager) {
+        this.tweenManager.update(dt);
+      }
+
       this.sceneView.render();
     };
 
@@ -908,6 +1370,76 @@ function update(dt) {
 
   _onTransformChanged() {
     this.inspector.refresh();
+  }
+
+  _onTransformStart() {
+    if (this.selectedEntity) {
+      this._gizmoOldState = TransformCommand.captureState(this.selectedEntity);
+    }
+  }
+
+  _onTransformEnd() {
+    if (this.selectedEntity && this._gizmoOldState) {
+      const newState = TransformCommand.captureState(this.selectedEntity);
+      if (newState) {
+        const cmd = new TransformCommand(this.selectedEntity, this._gizmoOldState, newState);
+        // Push directly to stack (already executed via gizmo)
+        this.undoManager._undoStack.push(cmd);
+        this.undoManager._redoStack.length = 0;
+        if (this.undoManager._undoStack.length > this.undoManager._maxStack) {
+          this.undoManager._undoStack.shift();
+        }
+        this.undoManager._emitStateChange();
+        this._markProjectDirty();
+      }
+      this._gizmoOldState = null;
+    }
+  }
+
+  /**
+   * Refresh UI after undo/redo
+   */
+  _afterUndoRedo() {
+    this.selectEntity(this.selectedEntity);
+    this.hierarchy.refresh();
+    this.inspector.refresh();
+    this._markProjectDirty();
+  }
+
+  /**
+   * Remove a component from the selected entity (called from Inspector)
+   * @param {import('../engine/Entity.js').Entity} entity
+   * @param {string} componentType
+   */
+  removeComponent(entity, componentType) {
+    if (!entity || componentType === 'Transform') return;
+    const cmd = new RemoveComponentCommand(entity, componentType);
+    this.undoManager.execute(cmd);
+    this.hierarchy.refresh();
+    this.inspector.refresh();
+    this._markProjectDirty();
+    this._log('info', `Removed ${componentType} from ${entity.name}`);
+  }
+
+  /**
+   * Reparent an entity (called from Hierarchy D&D)
+   * @param {import('../engine/Entity.js').Entity} entity
+   * @param {import('../engine/Entity.js').Entity} newParent
+   * @param {number} index
+   */
+  reparentEntity(entity, newParent, index = -1) {
+    if (!entity || entity === this.scene.root) return;
+    // Prevent parenting to self or own descendant
+    let check = newParent;
+    while (check) {
+      if (check === entity) return;
+      check = check.parent;
+    }
+    const cmd = new ReparentCommand(this.scene, entity, newParent, index);
+    this.undoManager.execute(cmd);
+    this.hierarchy.refresh();
+    this._markProjectDirty();
+    this._log('info', `Moved ${entity.name} to ${newParent.name}`);
   }
 
   // =============================================

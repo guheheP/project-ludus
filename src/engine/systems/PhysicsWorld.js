@@ -220,15 +220,9 @@ export class PhysicsWorld {
       const rot = rigidBody.rotation();
 
       // Update Three.js object directly
+      // (Transform.position/rotation are getters to object3D, so this also syncs the component)
       entity.object3D.position.set(pos.x, pos.y, pos.z);
       entity.object3D.quaternion.set(rot.x, rot.y, rot.z, rot.w);
-
-      // Also update Transform component to keep them in sync
-      const transform = entity.getComponent('Transform');
-      if (transform) {
-        transform.position.set(pos.x, pos.y, pos.z);
-        // rotation Euler is auto-synced from quaternion
-      }
     }
   }
 
@@ -302,7 +296,7 @@ export class PhysicsWorld {
   _updateDebugDraw() {
     if (!this.debugGroup) return;
 
-    // Clear old
+    // Clear old (dispose both the WireframeGeometry and any base geometry)
     while (this.debugGroup.children.length) {
       const child = this.debugGroup.children[0];
       this.debugGroup.remove(child);
@@ -348,15 +342,13 @@ export class PhysicsWorld {
       }
 
       const material = col.isTrigger ? this._debugTriggerMaterial : this._debugMaterial;
-      const wireframe = new THREE.LineSegments(
-        new THREE.WireframeGeometry(geom),
-        material
-      );
+      const wireGeom = new THREE.WireframeGeometry(geom);
+      geom.dispose(); // dispose base geometry immediately after creating wireframe
+
+      const wireframe = new THREE.LineSegments(wireGeom, material);
       wireframe.position.set(pos.x, pos.y, pos.z);
       wireframe.quaternion.set(rot.x, rot.y, rot.z, rot.w);
       this.debugGroup.add(wireframe);
-
-      geom.dispose();
     }
   }
 

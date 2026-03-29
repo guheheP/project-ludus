@@ -27,14 +27,25 @@ function update(dt) {
 
 /**
  * Script Component — Holds user code for an entity
+ *
+ * When filePath is set, the script code is stored as an external file
+ * in the project's scripts/ directory, enabling AI IDE collaboration.
+ * When filePath is null, code is embedded directly (standalone mode).
  */
 export class ScriptComponent extends Component {
   static typeName = 'Script';
 
-  /** @type {string} */
+  /** @type {string} Script source code */
   code = DEFAULT_SCRIPT;
 
-  /** @type {string} */
+  /**
+   * External file reference (relative to scripts/ folder).
+   * When set, the script is saved as a separate .js file.
+   * @type {string|null}
+   */
+  filePath = null;
+
+  /** @type {string} Display name for the script */
   fileName = 'script.js';
 
   /** @type {boolean} */
@@ -59,18 +70,37 @@ export class ScriptComponent extends Component {
   _errorMessage = '';
 
   serialize() {
-    return {
+    const data = {
       ...super.serialize(),
-      code: this.code,
       fileName: this.fileName,
       enabled: this.enabled,
     };
+
+    if (this.filePath) {
+      // External file mode: store only the filePath reference
+      data.filePath = this.filePath;
+    } else {
+      // Embedded mode: store the code directly
+      data.code = this.code;
+    }
+
+    return data;
   }
 
   deserialize(data) {
     super.deserialize(data);
-    this.code = data.code || DEFAULT_SCRIPT;
     this.fileName = data.fileName || 'script.js';
     this.enabled = data.enabled !== false;
+
+    if (data.filePath) {
+      // External file mode — code will be loaded by ProjectManager
+      this.filePath = data.filePath;
+      this.code = data.code || DEFAULT_SCRIPT; // fallback until loaded
+    } else {
+      // Embedded mode
+      this.filePath = null;
+      this.code = data.code || DEFAULT_SCRIPT;
+    }
   }
 }
+

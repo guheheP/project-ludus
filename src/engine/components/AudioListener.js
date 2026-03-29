@@ -15,7 +15,7 @@ export class AudioListener extends Component {
   }
 
   serialize() {
-    return {};
+    return { ...super.serialize() };
   }
 
   deserialize(data) {

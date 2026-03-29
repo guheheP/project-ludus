@@ -21,7 +21,7 @@ export class UICanvas extends Component {
   }
 
   serialize() {
-    return { overlay: this.overlay };
+    return { ...super.serialize(), overlay: this.overlay };
   }
 
   deserialize(data) {

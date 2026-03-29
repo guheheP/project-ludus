@@ -29,6 +29,15 @@ export class Toolbar {
   /** @type {Function|null} */
   onExport = null;
 
+  /** @type {Function|null} */
+  onOpenProject = null;
+
+  /** @type {Function|null} */
+  onUndo = null;
+
+  /** @type {Function|null} */
+  onRedo = null;
+
   /** @type {string} */
   currentMode = 'translate';
 
@@ -85,12 +94,40 @@ export class Toolbar {
 
     this._addSeparator();
 
+    // Effects
+    const fxGroup = this._createGroup();
+    this._addButton(fxGroup, '✨', 'Particle Emitter', 'add-particle');
+    this.container.appendChild(fxGroup);
+
+    this._addSeparator();
+
     // File operations
     const fileGroup = this._createGroup();
     this._addButton(fileGroup, '💾', 'Save Scene (Ctrl+S)', 'save');
     this._addButton(fileGroup, '📂', 'Load Scene (Ctrl+O)', 'load');
     this._addButton(fileGroup, '📦', 'Export Game (.zip)', 'export');
     this.container.appendChild(fileGroup);
+
+    this._addSeparator();
+
+    // Project operations
+    const projectGroup = this._createGroup();
+    this._addButton(projectGroup, '🗂️', 'Open Project Folder', 'open-project');
+    this.projectIndicator = document.createElement('span');
+    this.projectIndicator.className = 'toolbar-project-indicator';
+    this.projectIndicator.textContent = '';
+    projectGroup.appendChild(this.projectIndicator);
+    this.container.appendChild(projectGroup);
+
+    this._addSeparator();
+
+    // Undo/Redo
+    const undoGroup = this._createGroup();
+    this.btnUndo = this._addButton(undoGroup, '↩', 'Undo (Ctrl+Z)', 'undo');
+    this.btnRedo = this._addButton(undoGroup, '↪', 'Redo (Ctrl+Y)', 'redo');
+    this.btnUndo.classList.add('disabled');
+    this.btnRedo.classList.add('disabled');
+    this.container.appendChild(undoGroup);
 
     // Play controls (centered)
     const playGroup = document.createElement('div');
@@ -143,6 +180,9 @@ export class Toolbar {
         case 'add-pointlight':
           this.onAddEntity?.('point-light');
           break;
+        case 'add-particle':
+          this.onAddEntity?.('particle');
+          break;
         case 'save':
           this.onSave?.();
           break;
@@ -151,6 +191,15 @@ export class Toolbar {
           break;
         case 'export':
           this.onExport?.();
+          break;
+        case 'open-project':
+          this.onOpenProject?.();
+          break;
+        case 'undo':
+          this.onUndo?.();
+          break;
+        case 'redo':
+          this.onRedo?.();
           break;
       }
     });
@@ -216,6 +265,36 @@ export class Toolbar {
         this.btnSnap.classList.toggle('active', this.snapEnabled);
         if (this.onSnapToggle) this.onSnapToggle(this.snapEnabled);
         break;
+    }
+  }
+
+  /**
+   * Update the project state indicator
+   * @param {boolean} isOpen
+   * @param {boolean} isDirty
+   */
+  setProjectState(isOpen, isDirty) {
+    if (!this.projectIndicator) return;
+    if (isOpen) {
+      const dot = isDirty ? '●' : '✓';
+      this.projectIndicator.textContent = `${dot} Project`;
+      this.projectIndicator.style.color = isDirty ? '#f5a623' : '#4ade80';
+    } else {
+      this.projectIndicator.textContent = '';
+    }
+  }
+
+  /**
+   * Update undo/redo button states
+   * @param {boolean} canUndo
+   * @param {boolean} canRedo
+   */
+  setUndoState(canUndo, canRedo) {
+    if (this.btnUndo) {
+      this.btnUndo.classList.toggle('disabled', !canUndo);
+    }
+    if (this.btnRedo) {
+      this.btnRedo.classList.toggle('disabled', !canRedo);
     }
   }
 }

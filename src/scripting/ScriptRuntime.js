@@ -32,12 +32,13 @@ export class ScriptRuntime {
   /** @type {boolean} */
   isRunning = false;
 
-  constructor(scene, input, physics = null, audioSystem = null, uiSystem = null) {
+  constructor(scene, input, physics = null, audioSystem = null, uiSystem = null, tweenManager = null) {
     this.scene = scene;
     this.input = input;
     this.physics = physics;
     this.audioSystem = audioSystem;
     this.uiSystem = uiSystem;
+    this.tweenManager = tweenManager;
   }
 
   /**
@@ -190,6 +191,10 @@ export class ScriptRuntime {
       rigidbody: this._createRigidbodyAPI(entity),
       // Audio API (if entity has AudioSource component)
       audio: this._createAudioAPI(entity),
+      // Particles API (if entity has ParticleEmitter component)
+      particles: this._createParticlesAPI(entity),
+      // Tween API
+      tween: this._createTweenAPI(),
       // UI API (if UISystem is available)
       ui: this._createUIAPI(),
       // Console redirect
@@ -228,7 +233,7 @@ export class ScriptRuntime {
 
       const factory = new Function(
         'entity', 'transform', 'scene', 'input', 'time', 'console', 'Math',
-        'rigidbody', 'audio', 'ui',
+        'rigidbody', 'audio', 'particles', 'tween', 'ui',
         wrappedCode
       );
 
@@ -243,6 +248,8 @@ export class ScriptRuntime {
         Math,
         context.rigidbody,
         context.audio,
+        context.particles,
+        context.tween,
         context.ui,
       );
 
@@ -332,6 +339,52 @@ export class ScriptRuntime {
         src.volume = v;
         if (src.threeAudio) src.threeAudio.setVolume(v);
       }
+    };
+  }
+
+  /**
+   * Create a particles API proxy for scripts
+   * @param {import('../engine/Entity.js').Entity} entity
+   * @returns {object|null}
+   */
+  _createParticlesAPI(entity) {
+    const pe = entity.getComponent('ParticleEmitter');
+    if (!pe) return null;
+
+    return {
+      emit: () => pe.play(),
+      stop: () => pe.stop(),
+      play: () => pe.play(),
+      burst: (count = 50) => pe.burst(count),
+      reset: () => pe.reset(),
+      set: (params) => {
+        if (params.rate !== undefined) pe.emissionRate = params.rate;
+        if (params.gravity !== undefined) pe.gravity = params.gravity;
+        if (params.spread !== undefined) pe.spread = params.spread;
+        if (params.startColor !== undefined) pe.startColor = params.startColor;
+        if (params.endColor !== undefined) pe.endColor = params.endColor;
+        if (params.startSize !== undefined) pe.startSize = params.startSize;
+        if (params.endSize !== undefined) pe.endSize = params.endSize;
+        if (params.startOpacity !== undefined) pe.startOpacity = params.startOpacity;
+        if (params.endOpacity !== undefined) pe.endOpacity = params.endOpacity;
+      },
+      get playing() { return pe.playing; },
+    };
+  }
+
+  /**
+   * Create a tween API proxy for scripts
+   * @returns {object|null}
+   */
+  _createTweenAPI() {
+    const tm = this.tweenManager;
+    if (!tm) return null;
+
+    return {
+      to: (target, props, duration, easing = 'linear') => tm.to(target, props, duration, easing),
+      killAll: () => tm.killAll(),
+      killTweensOf: (target) => tm.killTweensOf(target),
+      get count() { return tm.count; },
     };
   }
 

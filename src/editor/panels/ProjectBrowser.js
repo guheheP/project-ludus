@@ -6,6 +6,9 @@ export class ProjectBrowser {
   constructor(container, assetManager) {
     this.container = container;
     this.assetManager = assetManager;
+
+    /** @type {Function|null} Called when a model asset should be added to the scene */
+    this.onAddModelToScene = null;
     
     this._render();
     this._bindEvents();
@@ -114,6 +117,17 @@ export class ProjectBrowser {
           this.refresh();
         }
       });
+
+      // Double click to add model to scene
+      if (meta.type === 'model') {
+        item.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          if (this.onAddModelToScene) {
+            this.onAddModelToScene(meta.id, meta.name);
+          }
+        });
+        item.title = 'Double-click to add to scene, or drag to scene view';
+      }
 
       this.gridEl.appendChild(item);
     });

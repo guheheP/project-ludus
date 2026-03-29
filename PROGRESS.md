@@ -8,9 +8,14 @@
 Unity や Godot にインスパイアされた本格的なエディタUIを持ち、  
 Three.js + Rapier 物理エンジンの上に構築されています。
 
+**最大の特長は AI IDE (Antigravity 等) との共同開発ワークフロー** です。  
+ユーザーはブラウザでビジュアル面を調整し、AI IDE がスクリプトやシーン定義を  
+直接編集することで、スピード感のあるゲーム開発を実現します。
+
 - **技術スタック**: Vite + Vanilla JS + Three.js r183 + Rapier3D + Monaco Editor
 - **設計思想**: ECS (Entity-Component-System) パターン
 - **ターゲット**: ブラウザ上で動作する軽量な3Dゲーム制作ツール
+- **対応ブラウザ**: Chromium系 (Chrome, Edge, Arc 等)
 
 ---
 
@@ -32,13 +37,14 @@ Three.js + Rapier 物理エンジンの上に構築されています。
   - Bend（曲げ）
   - Taper（テーパー）
   - Noise（ノイズ変形）
+  - Subdivide（再分割）
 - **Inspector連携**: モディファイアスタックのリアルタイム編集UI
 
 ### Phase 3: スクリプティングシステム
 - **ScriptRuntime**: サンドボックス化されたユーザースクリプト実行環境
 - **スクリプトAPI**: `entity`, `transform`, `scene`, `input`, `time`, `console`
 - **ScriptEditor (Monaco)**: シンタックスハイライト、IntelliSense 型定義付き
-- **InputManager**: キーボード入力のリアルタイム取得
+- **InputManager**: キーボード・マウス入力のリアルタイム取得
 - **Play/Pause/Stop モード**: エディタとランタイムの切り替え
 
 ### Phase 4: 物理エンジン（Rapier3D）
@@ -55,7 +61,7 @@ Three.js + Rapier 物理エンジンの上に構築されています。
 - **AssetManager**: ドラッグ＆ドロップでのアセットインポート (PNG, GLB, MP3)
 - **ProjectBrowser パネル**: インポート済みアセットの一覧表示
 - **AudioSystem**: AudioListener / AudioSource コンポーネント（3Dスペーシャルオーディオ対応）
-- **SceneSerializer**: シーンの JSON シリアライズ / デシリアライズ
+- **SceneSerializer**: シーンの JSON シリアライズ / デシリアライズ（親子関係復元対応）
 - **Exporter**: プレイ可能な HTML ファイルとしてのゲームエクスポート（ZIP出力）
 
 ### Phase 6: UI/Canvas システム
@@ -70,15 +76,91 @@ Three.js + Rapier 物理エンジンの上に構築されています。
   - `ui.removeElement(id)` / `ui.clearAll()` — 要素の削除
 - **IntelliSense**: ScriptEditor に UIAPI 型定義を追加
 
+### Phase 7: AI IDE 連携＆プロジェクト管理
+- **ProjectManager**: File System Access API によるプロジェクトフォルダ直接読み書き
+- **ファイルベースのプロジェクト構造**: `scenes/`, `scripts/`, `assets/` の自動管理
+- **スクリプトの外部ファイル化**: `scripts/*.js` として個別ファイルに保存（AI IDE が直接編集可能）
+- **自動保存**: 変更後2秒のデバウンスで自動保存
+- **ホットリロード**: ポーリングによるファイル変更検知、AI IDE の編集が自動反映
+- **AI IDE ドキュメント**: `.ludus/api-reference.md` (スクリプトAPI) + `.ludus/scene-schema.json` (JSONスキーマ)
+- **プロジェクト状態インジケーター**: ツールバーに保存状態を表示
+
+### Phase 8: エディタ品質向上
+- **Undo/Redo**: コマンドパターンによる操作履歴管理（スタック上限5０）
+  - 対応コマンド: AddEntity, DeleteEntity, Transform, Property, AddComponent, RemoveComponent, Reparent
+  - ショートカット: Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
+  - ツールバーボタン: ↩ / ↪（disabled 状態制御付き）
+- **コンポーネント削除**: Inspector の各コンポーネントヘッダーに ✕ ボタン（Transform は削除不可）
+- **Hierarchy ドラッグ＆ドロップ**: エンティティの親子関係変更・同階層並び替え
+  - ドロップインジケーター: 上 (above) / 中央 (into) / 下 (below)
+  - 自己・子孫への移動防止
+
+### Phase 8.5: GLB/GLTF モデル シーン内プレビュー
+- **GLBModel コンポーネント**: Three.js GLTFLoader + DRACOLoader (CDN) でモデルロード
+- **自動スケール調整**: バウンディングボックスから計算し、maxSize (デフォルト 2) に収まるよう自動フィット
+- **モデル統計**: Inspector にメッシュ数、三角形数、頂点数、マテリアル数を表示
+- **影設定**: castShadow / receiveShadow をコンポーネント単位で制御
+- **シーン配置方法**: ProjectBrowser からダブルクリック or SceneView へドラッグ＆ドロップ
+- **シリアライズ対応**: assetId でモデルを永続化、シーン再読み込み時に自動リロード
+- **メモリ管理**: onDetach 時に全ジオメトリ/マテリアル/テクスチャを dispose
+
+### Phase 9: パーティクルシステム
+- **ParticleEmitter コンポーネント**: THREE.Points ベースの GPU パーティクルシステム
+  - 固定サイズバッファ＋オブジェクトプール方式（GC フリー）
+  - ワールド空間でパーティクル管理、エンティティ位置に追従して発射
+- **パラメータ**: 発射レート、最大数、寿命(min/max)、速度(min/max)、方向、スプレッド(0→集中 / 1→全方位)、重力、サイズ(start/end)、色(start/end)、不透明度(start/end)
+- **ブレンドモード**: Additive / Normal 切り替え
+- **プリセット 5種**: Fire, Smoke, Sparkle, Explosion, Snow — ワンクリックで適用
+- **Inspector UI**: 全パラメータのリアルタイム編集、再生/停止/バースト/リセット コントロール
+- **スクリプト API**: `particles.emit()`, `particles.stop()`, `particles.burst(count)`, `particles.reset()`, `particles.set({...})`
+- **エクスポート対応**: Exporter のファイルリスト・ゲームループに統合
+- **シリアライズ対応**: シーン保存/読み込み/複製に対応
+- **ツールバー**: ✨ ボタンでワンクリック追加
+- **Hierarchy アイコン**: ✨
+
+### Phase 10A: アニメーションシステム
+- **TweenManager**: 軽量 Tween エンジン (`src/engine/systems/TweenManager.js`)
+  - 11種イージング: linear, easeInQuad, easeOutQuad, easeInOutQuad, easeInCubic, easeOutCubic, easeInOutCubic, easeInBack, easeOutBack, easeOutElastic, easeOutBounce
+  - delay, loop (yoyo), onComplete, onUpdate コールバック
+- **Animator コンポーネント**: コードなし自動アニメーション (`src/engine/components/Animator.js`)
+  - 4タイプ: Rotate(回転), Float(浮遊), Pulse(拡縮), Orbit(公転)
+  - Speed, Amplitude, Axis パラメータ
+  - 初期状態を自動キャプチャしてリセット可能
+- **GLBModel アニメーション**: AnimationMixer 統合
+  - クリップ一覧表示、名前/インデックスで再生
+  - ループ/ワンショット切り替え
+  - Inspector でクリップ選択 + 再生/停止ボタン
+- **スクリプト API**: `tween.to(target, {y:5}, 1.0, 'easeOutBounce').delay(1).loop(true)`
+- **Inspector UI**: Animator 全パラメータ編集 + ⏸/🔄 コントロール
+- **シリアライズ対応**: Animator シーン保存/読み込み/複製
+- **エクスポート対応**: Exporter にファイルリスト・ゲームループ統合
+- **Hierarchy アイコン**: 🎬
+
+### Phase 12A: ポストプロセス (レンダリング強化)
+- **PostProcessManager**: EffectComposer ベースの統合ポストプロセスパイプライン (`src/engine/systems/PostProcessManager.js`)
+  - RenderPass → SSAOPass → UnrealBloomPass → Vignette → ColorGrading → OutputPass
+- **Bloom**: UnrealBloomPass (Strength, Radius, Threshold)
+- **SSAO**: SSAOPass (Kernel Radius, Min/Max Distance)
+- **Vignette**: カスタム GLSL シェーダー (Offset, Darkness)
+- **Color Grading**: カスタム GLSL シェーダー (Brightness, Contrast, Saturation)
+- **SceneView 統合**: render() を composer.render() に置き換え、resize 対応
+- **Inspector UI**: エンティティ未選択時に「🎨 Post-Processing」パネルを表示
+  - 4セクション (Bloom, SSAO, Vignette, Color Grading) それぞれ ON/OFF + パラメータ
+- **シリアライズ対応**: SceneSerializer に postProcess 設定の保存/復元を追加
+- **エクスポート対応**: Exporter ランタイムに PostProcessManager を統合
+
 ---
 
 ## 🏗️ プロジェクト構造
 
 ```
-GameEditor/
+project-ludus/
 ├── index.html                    # エントリーポイント (エディタレイアウト)
 ├── package.json
 ├── vite.config.js
+├── .ludus/                       # AI IDE 向けドキュメント
+│   ├── api-reference.md          # スクリプトAPIリファレンス
+│   └── scene-schema.json         # シーンJSONスキーマ
 └── src/
     ├── main.js                   # アプリケーション起動
     ├── styles/
@@ -92,21 +174,30 @@ GameEditor/
     │   │   ├── Transform.js      # 位置・回転・スケール
     │   │   ├── MeshRenderer.js   # メッシュ描画
     │   │   ├── Light.js          # ライティング
-    │   │   ├── Script.js         # スクリプト
+    │   │   ├── Script.js         # スクリプト (filePath 外部ファイル対応)
     │   │   ├── RigidBody.js      # 物理ボディ
     │   │   ├── Collider.js       # 衝突形状
     │   │   ├── AudioListener.js  # オーディオリスナー
     │   │   ├── AudioSource.js    # オーディオソース
     │   │   └── UICanvas.js       # UIキャンバス
     │   └── systems/
-    │       ├── PhysicsWorld.js   # Rapier 物理ワールド
+    │       ├── PhysicsWorld.js    # Rapier 物理ワールド
     │       ├── AudioSystem.js    # オーディオ管理
     │       └── UISystem.js       # UI オーバーレイ管理
     ├── editor/                   # エディタ機能
     │   ├── Editor.js             # メインエディタコントローラ
     │   ├── ContextMenu.js        # 右クリックメニュー
-    │   ├── Exporter.js           # ゲームエクスポーター
+    │   ├── Exporter.js           # ゲームエクスポーター (ZIP)
+    │   ├── ProjectManager.js     # プロジェクトフォルダ管理 (File System Access API)
     │   ├── SceneSerializer.js    # シーン保存・読み込み
+    │   ├── UndoManager.js        # Undo/Redo スタック管理
+    │   ├── commands/             # コマンドパターン
+    │   │   ├── Command.js        # 基底クラス
+    │   │   ├── EntityCommands.js # Add/Delete エンティティ
+    │   │   ├── TransformCommand.js
+    │   │   ├── PropertyCommand.js
+    │   │   ├── ComponentCommands.js
+    │   │   └── ReparentCommand.js
     │   └── panels/
     │       ├── Hierarchy.js      # エンティティツリー
     │       ├── Inspector.js      # プロパティエディタ
@@ -122,17 +213,16 @@ GameEditor/
     │       ├── Twist.js
     │       ├── Bend.js
     │       ├── Taper.js
-    │       └── Noise.js
+    │       ├── Noise.js
+    │       └── Subdivide.js
     └── scripting/                # スクリプトランタイム
         ├── ScriptRuntime.js      # スクリプト実行サンドボックス
-        └── InputManager.js       # キーボード入力
+        └── InputManager.js       # キーボード・マウス入力
 ```
 
 ---
 
 ## 🔧 既知の課題・改善点
 
-1. **Exporter.js**: テンプレートリテラルの問題を回避するため文字列結合を使用中（Viteのバンドルでエスケープが壊れる場合あり）
-2. **Ground の物理**: Plane ジオメトリの回転(-90° X)と Collider サイズの整合性に要注意
-3. **AudioSystem**: 実際のオーディオ再生はブラウザの autoplay policy による制限あり
-4. **シーン永続化**: localStorage への自動保存は未実装（デフォルトシーンは毎回再生成）
+1. **Ground の物理**: Plane ジオメトリの回転(-90° X)と Collider サイズの整合性に要注意
+2. **AudioSystem**: 実際のオーディオ再生はブラウザの autoplay policy による制限あり

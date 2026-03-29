@@ -40,6 +40,7 @@ export class AudioSource extends Component {
 
   serialize() {
     return {
+      ...super.serialize(),
       assetId: this.assetId,
       autoplay: this.autoplay,
       loop: this.loop,

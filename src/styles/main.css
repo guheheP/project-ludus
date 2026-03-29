@@ -602,11 +602,11 @@ html, body {
   align-items: center;
   min-height: 24px;
   margin-bottom: 4px;
-  gap: 8px;
+  gap: 4px;
 }
 
 .prop-label {
-  width: 70px;
+  width: 56px;
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
   flex-shrink: 0;
@@ -616,13 +616,14 @@ html, body {
 .prop-value {
   flex: 1;
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  min-width: 0;
 }
 
 .prop-input {
   flex: 1;
   height: 22px;
-  padding: 0 6px;
+  padding: 0 4px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -638,9 +639,55 @@ html, body {
   border-color: var(--border-focus);
 }
 
-.prop-input-x { border-left: 2px solid #f87171; }
-.prop-input-y { border-left: 2px solid #4ade80; }
-.prop-input-z { border-left: 2px solid #60a5fa; }
+/* Compact input for Vec3 fields — hide spin buttons */
+.prop-input-compact {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  padding: 0 3px;
+}
+.prop-input-compact::-webkit-outer-spin-button,
+.prop-input-compact::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Vec3 axis group (label + input) */
+.prop-vec3-group {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.prop-vec3-group .prop-input-compact {
+  border: none;
+  border-radius: 0;
+  height: 20px;
+}
+
+.prop-vec3-group .prop-input-compact:focus {
+  box-shadow: inset 0 0 0 1px var(--border-focus);
+}
+
+/* Axis labels */
+.prop-vec3-label {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 4px;
+  height: 20px;
+  line-height: 20px;
+  flex-shrink: 0;
+  user-select: none;
+  text-align: center;
+  min-width: 16px;
+}
+
+.prop-vec3-label-x { background: rgba(248, 113, 113, 0.3); color: #f87171; }
+.prop-vec3-label-y { background: rgba(74, 222, 128, 0.3); color: #4ade80; }
+.prop-vec3-label-z { background: rgba(96, 165, 250, 0.3); color: #60a5fa; }
 
 .prop-color {
   width: 22px;
@@ -1119,4 +1166,89 @@ html, body {
 
 .drag-overlay-h {
   cursor: row-resize;
+}
+
+/* ============================================
+   Project Indicator
+   ============================================ */
+.toolbar-project-indicator {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+/* ============================================
+   Toolbar Disabled Button
+   ============================================ */
+.toolbar-btn.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ============================================
+   Hierarchy Drag & Drop
+   ============================================ */
+.hierarchy-item.dragging {
+  opacity: 0.4;
+}
+
+.hierarchy-item.drop-above {
+  border-top: 2px solid var(--accent);
+}
+
+.hierarchy-item.drop-below {
+  border-bottom: 2px solid var(--accent);
+}
+
+.hierarchy-item.drop-into {
+  background: var(--accent-glow);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================
+   Component Delete Button
+   ============================================ */
+.component-delete-btn {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.component-delete-btn:hover {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
+/* ============================================
+   Draggable Property Labels
+   ============================================ */
+.prop-label-draggable {
+  cursor: ew-resize;
+  user-select: none;
+  transition: color var(--transition-fast);
+}
+
+.prop-label-draggable:hover {
+  color: var(--accent);
+}
+
+.prop-label-draggable:active {
+  color: var(--accent-hover);
 }

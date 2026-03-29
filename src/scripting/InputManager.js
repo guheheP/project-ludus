@@ -28,35 +28,43 @@ export class InputManager {
   constructor(element) {
     this._element = element;
 
-    window.addEventListener('keydown', (e) => {
+    // Store bound handlers for cleanup
+    this._onKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (!this.keysDown.has(e.key)) {
         this.keysPressed.add(e.key);
       }
       this.keysDown.add(e.key);
-    });
+    };
 
-    window.addEventListener('keyup', (e) => {
+    this._onKeyUp = (e) => {
       this.keysDown.delete(e.key);
       this.keysReleased.add(e.key);
-    });
+    };
+
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
 
     if (element) {
-      element.addEventListener('mousemove', (e) => {
+      this._onMouseMove = (e) => {
         const rect = element.getBoundingClientRect();
         this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      });
+      };
 
-      element.addEventListener('mousedown', (e) => {
+      this._onMouseDown = (e) => {
         if (e.button === 0) this.mouseLeft = true;
         if (e.button === 2) this.mouseRight = true;
-      });
+      };
 
-      element.addEventListener('mouseup', (e) => {
+      this._onMouseUp = (e) => {
         if (e.button === 0) this.mouseLeft = false;
         if (e.button === 2) this.mouseRight = false;
-      });
+      };
+
+      element.addEventListener('mousemove', this._onMouseMove);
+      element.addEventListener('mousedown', this._onMouseDown);
+      element.addEventListener('mouseup', this._onMouseUp);
     }
   }
 
@@ -94,4 +102,23 @@ export class InputManager {
     this.keysPressed.clear();
     this.keysReleased.clear();
   }
+
+  /**
+   * Remove all event listeners. Call when InputManager is no longer needed.
+   */
+  dispose() {
+    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
+
+    if (this._element) {
+      if (this._onMouseMove) this._element.removeEventListener('mousemove', this._onMouseMove);
+      if (this._onMouseDown) this._element.removeEventListener('mousedown', this._onMouseDown);
+      if (this._onMouseUp) this._element.removeEventListener('mouseup', this._onMouseUp);
+    }
+
+    this.keysDown.clear();
+    this.keysPressed.clear();
+    this.keysReleased.clear();
+  }
 }
+

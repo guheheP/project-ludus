@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { PostProcessManager } from '../../engine/systems/PostProcessManager.js';
 
 /**
  * SceneView — 3D Viewport with camera controls and transform gizmo
@@ -37,7 +38,14 @@ export class SceneView {
   onSelectEntity = null;
 
   /** @type {Function|null} */
+  /** @type {Function|null} Called when transform changes (during drag) */
   onTransformChange = null;
+
+  /** @type {Function|null} Called when gizmo drag starts */
+  onTransformStart = null;
+
+  /** @type {Function|null} Called when gizmo drag ends */
+  onTransformEnd = null;
 
   /** @type {boolean} */
   snapEnabled = false;
@@ -51,6 +59,9 @@ export class SceneView {
   /** @type {number} */
   snapScale = 0.25;
 
+  /** @type {PostProcessManager} */
+  postProcess;
+
   constructor(container) {
     this.container = container;
     this.raycaster = new THREE.Raycaster();
@@ -61,6 +72,7 @@ export class SceneView {
     this._initControls();
     this._initGrid();
     this._initLighting();
+    this._initPostProcess();
     this._bindEvents();
   }
 
@@ -102,6 +114,13 @@ export class SceneView {
 
     this.transformControls.addEventListener('dragging-changed', (event) => {
       this.orbitControls.enabled = !event.value;
+      if (event.value) {
+        // Drag started
+        if (this.onTransformStart) this.onTransformStart();
+      } else {
+        // Drag ended
+        if (this.onTransformEnd) this.onTransformEnd();
+      }
     });
 
     this.transformControls.addEventListener('objectChange', () => {
@@ -139,6 +158,9 @@ export class SceneView {
     scene.threeScene.add(this.transformControls.getHelper());
     scene.threeScene.add(this._editorAmbient);
     scene.threeScene.add(this._editorHemi);
+
+    // Initialize post-processing with the scene
+    this._setupPostProcess();
   }
 
   /**
@@ -250,6 +272,9 @@ export class SceneView {
     this.camera.aspect = rect.width / rect.height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(rect.width, rect.height);
+    if (this.postProcess) {
+      this.postProcess.resize(rect.width, rect.height);
+    }
   }
 
   /**
@@ -258,7 +283,11 @@ export class SceneView {
   render() {
     if (!this.scene) return;
     this.orbitControls.update();
-    this.renderer.render(this.scene.threeScene, this.camera);
+    if (this.postProcess && this.postProcess.enabled) {
+      this.postProcess.render();
+    } else {
+      this.renderer.render(this.scene.threeScene, this.camera);
+    }
   }
 
   /**
@@ -290,6 +319,23 @@ export class SceneView {
     this._resizeObserver.disconnect();
     this.orbitControls.dispose();
     this.transformControls.dispose();
+    if (this.postProcess) this.postProcess.dispose();
     this.renderer.dispose();
+  }
+
+  /**
+   * Initialize post-processing pipeline
+   */
+  _initPostProcess() {
+    this.postProcess = new PostProcessManager();
+    // Will be fully initialized when scene is set
+  }
+
+  /**
+   * Initialize post-processing with current scene
+   */
+  _setupPostProcess() {
+    if (!this.scene || !this.postProcess) return;
+    this.postProcess.init(this.renderer, this.scene.threeScene, this.camera);
   }
 }

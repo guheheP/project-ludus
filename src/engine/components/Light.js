@@ -98,4 +98,13 @@ export class Light extends Component {
       castShadow: this.castShadow,
     };
   }
+
+  deserialize(data) {
+    super.deserialize(data);
+    this.configure(data.lightType || 'directional', {
+      color: data.color,
+      intensity: data.intensity,
+      castShadow: data.castShadow,
+    });
+  }
 }
