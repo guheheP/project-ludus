@@ -66,11 +66,18 @@ export class DeleteEntityCommand extends Command {
   }
 
   execute() {
-    this.scene.removeEntity(this.entity);
+    // Guard: only remove if entity is still in the scene
+    if (this.scene.entityMap.has(this.entity.id)) {
+      this.scene.removeEntity(this.entity);
+    }
   }
 
   undo() {
-    // Restore from serialized data
-    SceneSerializer.deserializeEntity(this._serializedData, this.scene, this.parent);
+    // Guard: only restore if entity is NOT already in the scene
+    if (!this.scene.entityMap.has(this.entity.id)) {
+      const restored = SceneSerializer.deserializeEntity(this._serializedData, this.scene, this.parent);
+      // Update our reference so future execute()/undo() cycles work correctly
+      this.entity = restored;
+    }
   }
 }

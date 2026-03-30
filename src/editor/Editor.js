@@ -13,6 +13,7 @@ import { AnimationPlayer } from '../engine/components/AnimationPlayer.js';
 import { InstancedMeshRenderer } from '../engine/components/InstancedMeshRenderer.js';
 import { Camera } from '../engine/components/Camera.js';
 import { ProceduralMesh } from '../modeling/ProceduralMesh.js';
+import { EditableMesh } from '../modeling/EditableMesh.js';
 import { TwistModifier } from '../modeling/modifiers/Twist.js';
 import { SceneView } from './panels/SceneView.js';
 import { Hierarchy } from './panels/Hierarchy.js';
@@ -41,6 +42,7 @@ import { AddEntityCommand, DeleteEntityCommand } from './commands/EntityCommands
 import { TransformCommand } from './commands/TransformCommand.js';
 import { RemoveComponentCommand } from './commands/ComponentCommands.js';
 import { ReparentCommand } from './commands/ReparentCommand.js';
+import { VertexTransformCommand } from './commands/VertexTransformCommand.js';
 import { EnvironmentSystem } from '../engine/systems/EnvironmentSystem.js';
 
 const THREE_REVISION = THREE.REVISION;
@@ -163,6 +165,11 @@ export class Editor {
     this.sceneView.onTransformChange = () => this._onTransformChanged();
     this.sceneView.onTransformStart = () => this._onTransformStart();
     this.sceneView.onTransformEnd = () => this._onTransformEnd();
+    this.sceneView.onVertexTransformEnd = (entity, indices, starts, ends) => {
+      const cmd = new VertexTransformCommand(entity, indices, starts, ends);
+      this.undoManager.execute(cmd);
+      this._markProjectDirty();
+    };
 
     // Input manager (for scripts)
     this.inputManager = new InputManager(sceneContainer);
@@ -208,6 +215,12 @@ export class Editor {
     this.toolbar.onAddEntity = (type) => this._addEntity(type);
     this.toolbar.onSnapToggle = (enabled) => {
       this.sceneView.setSnap(enabled);
+    };
+    this.toolbar.onVertexEditToggle = (enabled) => {
+      this.sceneView.setVertexEditMode(enabled);
+    };
+    this.toolbar.onSymmetryToggle = (axis, enabled) => {
+      this.sceneView.setSymmetry(axis, enabled);
     };
     this.toolbar.onSave = () => this._saveScene();
     this.toolbar.onLoad = () => this._loadScene();
@@ -488,6 +501,9 @@ export class Editor {
       this._playSnapshot = null;
     }
 
+    // Clear undo history — old commands reference pre-play entities that were destroyed during restore
+    this.undoManager.clear();
+
     this.mode = 'edit';
     this._updatePlayUI();
     this._log('info', '⏹ Stopped — Scene restored');
@@ -694,6 +710,11 @@ export class Editor {
       const pm = new ProceduralMesh();
       entity.addComponent(pm);
       pm.deserialize(srcPM.serialize());
+    } else if (src.hasComponent('EditableMesh')) {
+      const srcEM = src.getComponent('EditableMesh');
+      const em = new EditableMesh();
+      entity.addComponent(em);
+      em.deserialize(srcEM.serialize());
     } else if (src.hasComponent('MeshRenderer')) {
       const srcMR = src.getComponent('MeshRenderer');
       const mr = new MeshRenderer();
@@ -1449,6 +1470,11 @@ function update(dt) {
       if (entity.hasComponent('ProceduralMesh')) {
         const pm = entity.getComponent('ProceduralMesh');
         if (pm.loadAllTextures) pm.loadAllTextures(this.assetManager);
+      }
+      // EditableMesh textures
+      if (entity.hasComponent('EditableMesh')) {
+        const em = entity.getComponent('EditableMesh');
+        if (em.loadAllTextures) em.loadAllTextures(this.assetManager);
       }
     });
   }

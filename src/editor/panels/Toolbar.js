@@ -15,6 +15,12 @@ export class Toolbar {
   onSnapToggle = null;
 
   /** @type {Function|null} */
+  onVertexEditToggle = null;
+
+  /** @type {Function|null} */
+  onSymmetryToggle = null;
+
+  /** @type {Function|null} */
   onDelete = null;
 
   /** @type {Function|null} */
@@ -44,6 +50,12 @@ export class Toolbar {
   /** @type {boolean} */
   snapEnabled = false;
 
+  /** @type {boolean} */
+  vertexEditEnabled = false;
+
+  /** @type {{x:boolean, y:boolean, z:boolean}} */
+  symmetryEnabled = { x: false, y: false, z: false };
+
   constructor(container) {
     this.container = container;
     this._build();
@@ -63,6 +75,29 @@ export class Toolbar {
     this.btnTranslate = this._addButton(transformGroup, '⊞', 'Move (W)', 'translate', true);
     this.btnRotate = this._addButton(transformGroup, '↻', 'Rotate (E)', 'rotate');
     this.btnScale = this._addButton(transformGroup, '⤡', 'Scale (R)', 'scale');
+    
+    // Add small separator inside group
+    const inlineSep = document.createElement('div');
+    inlineSep.style.cssText = 'width:1px; height:16px; background:var(--border); margin:0 4px; display:inline-block; vertical-align:middle;';
+    transformGroup.appendChild(inlineSep);
+    
+    
+    this.btnVertexEdit = this._addButton(transformGroup, '📌', 'Vertex Edit (V)', 'vertex-edit');
+    
+    // Symmetry buttons
+    const symSep = document.createElement('div');
+    symSep.style.cssText = 'width:1px; height:16px; background:var(--border); margin:0 4px; display:inline-block; vertical-align:middle;';
+    transformGroup.appendChild(symSep);
+    
+    this.btnSymX = this._addButton(transformGroup, '▶◀X', 'X Symmetry', 'sym-x');
+    this.btnSymY = this._addButton(transformGroup, '▼▲Y', 'Y Symmetry', 'sym-y');
+    this.btnSymZ = this._addButton(transformGroup, '◆◇Z', 'Z Symmetry', 'sym-z');
+    
+    // Style symmetry text slightly smaller
+    this.btnSymX.style.fontSize = '12px';
+    this.btnSymY.style.fontSize = '12px';
+    this.btnSymZ.style.fontSize = '12px';
+
     this.container.appendChild(transformGroup);
 
     this._addSeparator();
@@ -156,6 +191,20 @@ export class Toolbar {
           this.snapEnabled = !this.snapEnabled;
           btn.classList.toggle('active', this.snapEnabled);
           if (this.onSnapToggle) this.onSnapToggle(this.snapEnabled);
+          break;
+        case 'vertex-edit':
+          this.vertexEditEnabled = !this.vertexEditEnabled;
+          btn.classList.toggle('active', this.vertexEditEnabled);
+          if (this.onVertexEditToggle) this.onVertexEditToggle(this.vertexEditEnabled);
+          break;
+        case 'sym-x':
+          this._setSymmetry('x', !this.symmetryEnabled.x);
+          break;
+        case 'sym-y':
+          this._setSymmetry('y', !this.symmetryEnabled.y);
+          break;
+        case 'sym-z':
+          this._setSymmetry('z', !this.symmetryEnabled.z);
           break;
         case 'add-box':
           this.onAddEntity?.('box');
@@ -255,6 +304,18 @@ export class Toolbar {
     }
   }
 
+  _setSymmetry(axis, enabled) {
+    this.symmetryEnabled[axis] = enabled;
+    
+    if (axis === 'x') this.btnSymX.classList.toggle('active', enabled);
+    if (axis === 'y') this.btnSymY.classList.toggle('active', enabled);
+    if (axis === 'z') this.btnSymZ.classList.toggle('active', enabled);
+
+    if (this.onSymmetryToggle) {
+      this.onSymmetryToggle(axis, enabled);
+    }
+  }
+
   /**
    * Handle keyboard shortcuts
    * @param {string} key
@@ -268,6 +329,11 @@ export class Toolbar {
         this.snapEnabled = !this.snapEnabled;
         this.btnSnap.classList.toggle('active', this.snapEnabled);
         if (this.onSnapToggle) this.onSnapToggle(this.snapEnabled);
+        break;
+      case 'v':
+        this.vertexEditEnabled = !this.vertexEditEnabled;
+        this.btnVertexEdit.classList.toggle('active', this.vertexEditEnabled);
+        if (this.onVertexEditToggle) this.onVertexEditToggle(this.vertexEditEnabled);
         break;
     }
   }

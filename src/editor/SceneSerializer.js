@@ -16,6 +16,7 @@ import { AnimationPlayer } from '../engine/components/AnimationPlayer.js';
 import { Camera } from '../engine/components/Camera.js';
 import { InstancedMeshRenderer } from '../engine/components/InstancedMeshRenderer.js';
 import { ProceduralMesh, MODIFIER_TYPES } from '../modeling/ProceduralMesh.js';
+import { EditableMesh } from '../modeling/EditableMesh.js';
 
 /**
  * SceneSerializer — Save & load scenes as JSON
@@ -79,6 +80,12 @@ export class SceneSerializer {
       if (entity.hasComponent('ProceduralMesh')) {
         const pm = entity.getComponent('ProceduralMesh');
         entityData.components.ProceduralMesh = pm.serialize();
+      }
+
+      // Serialize EditableMesh
+      if (entity.hasComponent('EditableMesh')) {
+        const em = entity.getComponent('EditableMesh');
+        entityData.components.EditableMesh = em.serialize();
       }
 
       // Serialize MeshRenderer (includes Phase 12B texture maps)
@@ -209,8 +216,15 @@ export class SceneSerializer {
         pm.deserialize(comps.ProceduralMesh);
       }
 
+      // EditableMesh
+      if (comps.EditableMesh) {
+        const em = new EditableMesh();
+        entity.addComponent(em);
+        em.deserialize(comps.EditableMesh);
+      }
+
       // MeshRenderer (includes Phase 12B textures)
-      if (comps.MeshRenderer && !comps.ProceduralMesh) {
+      if (comps.MeshRenderer && !comps.ProceduralMesh && !comps.EditableMesh) {
         const mr = new MeshRenderer();
         entity.addComponent(mr);
         mr.deserialize(comps.MeshRenderer);
@@ -369,6 +383,9 @@ export class SceneSerializer {
     if (entity.hasComponent('ProceduralMesh')) {
       entityData.components.ProceduralMesh = entity.getComponent('ProceduralMesh').serialize();
     }
+    if (entity.hasComponent('EditableMesh')) {
+      entityData.components.EditableMesh = entity.getComponent('EditableMesh').serialize();
+    }
     if (entity.hasComponent('MeshRenderer')) {
       const mr = entity.getComponent('MeshRenderer');
       entityData.components.MeshRenderer = mr.serialize();
@@ -441,6 +458,11 @@ export class SceneSerializer {
       const pm = new ProceduralMesh();
       pm.deserialize(comps.ProceduralMesh);
       entity.addComponent(pm);
+    }
+    if (comps.EditableMesh) {
+      const em = new EditableMesh();
+      em.deserialize(comps.EditableMesh);
+      entity.addComponent(em);
     }
     if (comps.MeshRenderer) {
       const mr = new MeshRenderer();

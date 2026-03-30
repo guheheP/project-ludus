@@ -80,30 +80,45 @@ export const SHAPE_PARAMS = {
     { name: 'Width', key: 'width', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
     { name: 'Height', key: 'height', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
     { name: 'Depth', key: 'depth', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
+    { name: 'Width Segs', key: 'widthSegments', type: 'number', default: 4, min: 1, max: 32, step: 1 },
+    { name: 'Height Segs', key: 'heightSegments', type: 'number', default: 4, min: 1, max: 32, step: 1 },
+    { name: 'Depth Segs', key: 'depthSegments', type: 'number', default: 4, min: 1, max: 32, step: 1 },
   ],
   sphere: [
     { name: 'Radius', key: 'radius', type: 'number', default: 0.5, min: 0.01, max: 25, step: 0.05 },
+    { name: 'Width Segs', key: 'widthSegments', type: 'number', default: 32, min: 3, max: 64, step: 1 },
+    { name: 'Height Segs', key: 'heightSegments', type: 'number', default: 16, min: 2, max: 32, step: 1 },
   ],
   cylinder: [
     { name: 'Radius Top', key: 'radiusTop', type: 'number', default: 0.5, min: 0, max: 25, step: 0.05 },
     { name: 'Radius Bottom', key: 'radiusBottom', type: 'number', default: 0.5, min: 0, max: 25, step: 0.05 },
     { name: 'Height', key: 'height', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
+    { name: 'Radial Segs', key: 'radialSegments', type: 'number', default: 32, min: 3, max: 64, step: 1 },
+    { name: 'Height Segs', key: 'heightSegments', type: 'number', default: 8, min: 1, max: 32, step: 1 },
   ],
   cone: [
     { name: 'Radius', key: 'radius', type: 'number', default: 0.5, min: 0.01, max: 25, step: 0.05 },
     { name: 'Height', key: 'height', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
+    { name: 'Radial Segs', key: 'radialSegments', type: 'number', default: 32, min: 3, max: 64, step: 1 },
+    { name: 'Height Segs', key: 'heightSegments', type: 'number', default: 8, min: 1, max: 32, step: 1 },
   ],
   torus: [
     { name: 'Radius', key: 'radius', type: 'number', default: 0.4, min: 0.01, max: 25, step: 0.05 },
     { name: 'Tube', key: 'tube', type: 'number', default: 0.15, min: 0.01, max: 10, step: 0.01 },
+    { name: 'Radial Segs', key: 'radialSegments', type: 'number', default: 16, min: 3, max: 64, step: 1 },
+    { name: 'Tube Segs', key: 'tubularSegments', type: 'number', default: 48, min: 3, max: 128, step: 1 },
   ],
   plane: [
-    { name: 'Width', key: 'width', type: 'number', default: 1, min: 0.01, max: 100, step: 0.1 },
-    { name: 'Height', key: 'height', type: 'number', default: 1, min: 0.01, max: 100, step: 0.1 },
+    { name: 'Width', key: 'width', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
+    { name: 'Height', key: 'height', type: 'number', default: 1, min: 0.01, max: 50, step: 0.1 },
+    { name: 'Width Segs', key: 'widthSegments', type: 'number', default: 8, min: 1, max: 64, step: 1 },
+    { name: 'Height Segs', key: 'heightSegments', type: 'number', default: 8, min: 1, max: 64, step: 1 },
   ],
   capsule: [
     { name: 'Radius', key: 'radius', type: 'number', default: 0.3, min: 0.01, max: 25, step: 0.05 },
-    { name: 'Length', key: 'length', type: 'number', default: 0.6, min: 0, max: 50, step: 0.1 },
+    { name: 'Length', key: 'length', type: 'number', default: 0.6, min: 0.01, max: 50, step: 0.1 },
+    { name: 'Cap Segs', key: 'capSegments', type: 'number', default: 8, min: 1, max: 32, step: 1 },
+    { name: 'Radial Segs', key: 'radialSegments', type: 'number', default: 16, min: 3, max: 64, step: 1 },
   ],
 };
 

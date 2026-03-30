@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GEOMETRY_TYPES } from '../../engine/components/MeshRenderer.js';
 import { MODIFIER_TYPES, SHAPE_PARAMS } from '../../modeling/ProceduralMesh.js';
+import { EditableMesh } from '../../modeling/EditableMesh.js';
 import { PARTICLE_PRESETS } from '../../engine/components/ParticleEmitter.js';
 import { ANIMATION_TYPES } from '../../engine/components/Animator.js';
 import { DISTRIBUTION_PATTERNS } from '../../engine/components/InstancedMeshRenderer.js';
@@ -58,6 +59,8 @@ export class Inspector {
     if (this.entity.hasComponent('ProceduralMesh')) {
       this._renderProceduralMesh();
       this._renderModifierStack();
+    } else if (this.entity.hasComponent('EditableMesh')) {
+      this._renderEditableMesh();
     } else if (this.entity.hasComponent('MeshRenderer')) {
       this._renderMeshRenderer();
     }
@@ -344,6 +347,35 @@ export class Inspector {
       this._emitChange();
     }));
 
+    // Convert to Editable Mesh button
+    const convertBtnRow = document.createElement('div');
+    convertBtnRow.style.cssText = 'padding: 12px 12px 4px 12px;';
+    const convertBtn = document.createElement('button');
+    convertBtn.className = 'inspector-btn';
+    convertBtn.innerHTML = '✨ Convert to Editable Mesh';
+    convertBtn.style.cssText = 'width: 100%; padding: 6px; font-weight: 600; background: var(--accent); color: #fff; border: none; border-radius: 4px; cursor: pointer;';
+    convertBtn.onclick = () => {
+      if (confirm('Convert to Editable Mesh? Modifiers will be applied permanently.')) {
+        if (!pm.mesh) pm.rebuild();
+        const geometry = pm.mesh.geometry.clone();
+        geometry.applyMatrix4(new THREE.Matrix4().identity()); // Ensure clean transform
+        const materialOpts = {
+          color: pm.color, metalness: pm.metalness, roughness: pm.roughness, wireframe: pm.wireframe,
+          diffuseMapId: pm.diffuseMapId, normalMapId: pm.normalMapId, roughnessMapId: pm.roughnessMapId,
+          metalnessMapId: pm.metalnessMapId, emissiveMapId: pm.emissiveMapId, emissiveIntensity: pm.emissiveIntensity,
+          emissiveColor: pm.emissiveColor, normalScale: pm.normalScale, uvRepeat: pm.uvRepeat,
+        };
+        this.entity.removeComponent('ProceduralMesh');
+        const em = new EditableMesh();
+        this.entity.addComponent(em);
+        em.fromBufferGeometry(geometry, materialOpts);
+        this.refresh();
+        this._emitChange();
+      }
+    };
+    convertBtnRow.appendChild(convertBtn);
+    body.appendChild(convertBtnRow);
+
     this.container.appendChild(section);
   }
 
@@ -520,6 +552,101 @@ export class Inspector {
 
     item.appendChild(modBody);
     return item;
+  }
+
+  // =============================================
+  // EditableMesh
+  // =============================================
+
+  _renderEditableMesh() {
+    const em = this.entity.getComponent('EditableMesh');
+    const section = this._createSection('🔷', 'Editable Mesh', 'EditableMesh');
+    const body = section.querySelector('.component-body');
+
+    // Stats
+    const statsDiv = document.createElement('div');
+    statsDiv.style.cssText = 'padding: 4px 12px; font-size: 11px; color: var(--text-muted);';
+    const vCount = em.positions.length / 3;
+    const fCount = em.indices.length > 0 ? em.indices.length / 3 : vCount / 3;
+    statsDiv.textContent = `Vertices: ${vCount}  |  Faces: ${fCount}`;
+    body.appendChild(statsDiv);
+
+    const helpDiv = document.createElement('div');
+    helpDiv.style.cssText = 'padding: 0 12px 8px 12px; font-size: 10px; color: var(--accent);';
+    helpDiv.textContent = 'Enable "Vertex Edit (V)" in toolbar to modify.';
+    body.appendChild(helpDiv);
+
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:var(--border);margin:8px 0;';
+    body.appendChild(sep);
+
+    // Basic Material props
+    body.appendChild(this._createColorRow('Color', em.color, (val) => {
+      em.setColor(val); this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Metalness', em.metalness, 0, 1, 0.05, (val) => {
+      em.setMetalness(val); this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Roughness', em.roughness, 0, 1, 0.05, (val) => {
+      em.setRoughness(val); this._emitChange();
+    }));
+    body.appendChild(this._createCheckboxRow('Wireframe', em.wireframe, (val) => {
+      em.setWireframe(val); this._emitChange();
+    }));
+
+    // Emissive properties
+    body.appendChild(this._createColorRow('Emissive', em.emissiveColor || '#000000', (val) => {
+      em.emissiveColor = val;
+      if (em.mesh?.material) em.mesh.material.emissive.set(val);
+      this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Emissive Int.', em.emissiveIntensity || 0, 0, 5, 0.1, (val) => {
+      em.emissiveIntensity = val;
+      if (em.mesh?.material) em.mesh.material.emissiveIntensity = val;
+      this._emitChange();
+    }));
+
+    // Texture slots
+    const textureSlots = [
+      { label: 'Diffuse Map', prop: 'diffuseMapId', slot: 'diffuse' },
+      { label: 'Normal Map', prop: 'normalMapId', slot: 'normal' },
+      { label: 'Roughness Map', prop: 'roughnessMapId', slot: 'roughness' },
+      { label: 'Metalness Map', prop: 'metalnessMapId', slot: 'metalness' },
+      { label: 'Emissive Map', prop: 'emissiveMapId', slot: 'emissive' },
+    ];
+    for (const { label, prop, slot } of textureSlots) {
+      body.appendChild(this._createTextureSlotRow(label, em[prop], async (assetId) => {
+        em[prop] = assetId;
+        if (this.assetManager && assetId) {
+          const url = await this.assetManager.getAssetUrl(assetId);
+          if (url) em.applyTexture(slot, url, assetId);
+        }
+        this._emitChange();
+      }, () => {
+        em.removeTexture(slot);
+        this._emitChange();
+        this.setEntity(this.entity);
+      }));
+    }
+
+    body.appendChild(this._createNumberRow('UV Repeat X', em.uvRepeat?.x ?? 1, 0.1, 20, 0.1, (val) => {
+      em.uvRepeat = { ...em.uvRepeat, x: val };
+      em.updateUVRepeat();
+      this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('UV Repeat Y', em.uvRepeat?.y ?? 1, 0.1, 20, 0.1, (val) => {
+      em.uvRepeat = { ...em.uvRepeat, y: val };
+      em.updateUVRepeat();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Normal Scale', em.normalScale ?? 1, 0, 2, 0.05, (val) => {
+      em.normalScale = val;
+      if (em.mesh?.material?.normalMap) em.mesh.material.normalScale.set(val, val);
+      this._emitChange();
+    }));
+
+    this.container.appendChild(section);
   }
 
   // =============================================
@@ -828,7 +955,7 @@ export class Inspector {
 
     // Shape
     body.appendChild(this._createSelectRow('Shape', col.shape,
-      ['box', 'sphere', 'capsule', 'cylinder'],
+      ['box', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'],
       (val) => { col.shape = val; this._emitChange(); this.refresh(); }
     ));
 
@@ -840,7 +967,7 @@ export class Inspector {
     }
 
     // Radius (sphere, capsule, cylinder)
-    if (col.shape !== 'box') {
+    if (['sphere', 'capsule', 'cylinder'].includes(col.shape)) {
       body.appendChild(this._createNumberRow('Radius', col.radius, 0.01, 100, 0.05, (val) => {
         col.radius = val; this._emitChange();
       }));
@@ -869,7 +996,7 @@ export class Inspector {
     }));
 
     // Auto-fit button
-    if (this.entity.hasComponent('ProceduralMesh')) {
+    if (this.entity.hasComponent('ProceduralMesh') || this.entity.hasComponent('EditableMesh') || this.entity.hasComponent('MeshRenderer')) {
       const autoBtn = document.createElement('button');
       autoBtn.className = 'modifier-small-btn';
       autoBtn.style.cssText = 'width:100%;margin-top:4px;padding:4px 8px;';

@@ -6,7 +6,7 @@ import { Component } from '../Component.js';
 export class Collider extends Component {
   static typeName = 'Collider';
 
-  /** @type {'box'|'sphere'|'capsule'|'cylinder'} */
+  /** @type {'box'|'sphere'|'capsule'|'cylinder'|'mesh'|'convex'} */
   shape = 'box';
 
   /** @type {{x: number, y: number, z: number}} Half-extents for box collider */
@@ -42,7 +42,7 @@ export class Collider extends Component {
       // Map shape type
       const shapeMap = {
         'box': 'box', 'sphere': 'sphere', 'cylinder': 'cylinder',
-        'cone': 'cylinder', 'torus': 'sphere', 'plane': 'box', 'capsule': 'capsule',
+        'cone': 'cylinder', 'torus': 'mesh', 'plane': 'box', 'capsule': 'capsule',
       };
       this.shape = shapeMap[pm.shapeType] || 'box';
 
@@ -80,10 +80,12 @@ export class Collider extends Component {
           const pw = (pm.shapeParams.width || 1) * 0.5;
           const ph = (pm.shapeParams.height || 1) * 0.5;
           this.shape = 'box';
-          this.size = { x: pw, y: 0.5, z: ph };
+          this.size = { x: pw, y: 0.05, z: ph }; // Prevent physics falling through 0-thickness
           break;
         }
       }
+    } else if (this.entity.hasComponent('EditableMesh')) {
+      this.shape = 'convex'; // Default to convex for edited meshes as it supports dynamics
     }
   }
 

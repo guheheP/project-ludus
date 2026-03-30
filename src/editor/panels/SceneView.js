@@ -62,6 +62,33 @@ export class SceneView {
   /** @type {number} */
   snapScale = 0.25;
 
+  /** @type {boolean} */
+  vertexEditMode = false;
+
+  /** @type {import('../../engine/Entity.js').Entity|null} */
+  _selectedEntity = null;
+
+  /** @type {THREE.Points|null} */
+  _vertexPoints = null;
+
+  /** @type {THREE.Object3D} */
+  _vertexDummy = new THREE.Object3D();
+
+  /** @type {number[]} */
+  _selectedVertexIndices = [];
+
+  /** @type {Array<THREE.Vector3>|null} */
+  _vertexDragStarts = null;
+
+  /** @type {Map<number, {startPos: THREE.Vector3, scaleX: number, scaleY: number, scaleZ: number}>} */
+  _vertexDragMap = null;
+
+  /** @type {THREE.Vector3|null} */
+  _dummyDragStart = null;
+
+  /** @type {{x:boolean, y:boolean, z:boolean}} */
+  symmetry = { x: false, y: false, z: false };
+
   /** @type {PostProcessManager} */
   postProcess;
 
@@ -129,17 +156,117 @@ export class SceneView {
 
     this.transformControls.addEventListener('dragging-changed', (event) => {
       this.orbitControls.enabled = !event.value;
-      if (event.value) {
-        // Drag started
-        if (this.onTransformStart) this.onTransformStart();
-      } else {
-        // Drag ended
-        if (this.onTransformEnd) this.onTransformEnd();
+      
+      // Record starting positions for vertex drag
+      if (event.value && this.vertexEditMode && this._selectedVertexIndices.length > 0 && this._selectedEntity) {
+        const em = this._selectedEntity.getComponent('EditableMesh');
+        if (em && em.mesh) {
+          this._vertexDragMap = new Map();
+          
+          for (const uIdx of this._selectedVertexIndices) {
+            const pos = new THREE.Vector3(
+              em.uniquePositions[uIdx * 3],
+              em.uniquePositions[uIdx * 3 + 1],
+              em.uniquePositions[uIdx * 3 + 2]
+            );
+            
+            // Add primary vertex
+            if (!this._vertexDragMap.has(uIdx)) {
+              this._vertexDragMap.set(uIdx, { startPos: pos.clone(), scaleX: 1, scaleY: 1, scaleZ: 1 });
+            }
+            
+            // Add symmetrical vertices if toggled
+            if (this.symmetry.x || this.symmetry.y || this.symmetry.z) {
+              const syms = em.getSymmetricalUniqueIndices(uIdx, this.symmetry);
+              for (const sym of syms) {
+                if (!this._vertexDragMap.has(sym.index)) {
+                  const symPos = new THREE.Vector3(
+                    em.uniquePositions[sym.index * 3],
+                    em.uniquePositions[sym.index * 3 + 1],
+                    em.uniquePositions[sym.index * 3 + 2]
+                  );
+                  this._vertexDragMap.set(sym.index, { 
+                    startPos: symPos, 
+                    scaleX: sym.scaleX, scaleY: sym.scaleY, scaleZ: sym.scaleZ 
+                  });
+                }
+              }
+            }
+          }
+          this._dummyDragStart = this._vertexDummy.position.clone();
+        }
+      } else if (event.value && this.onTransformStart && this._selectedEntity && this.transformControls.object === this._selectedEntity.object3D) {
+        // Normal entity transform start — capture state for undo
+        this.onTransformStart(this._selectedEntity);
+      }
+      
+      // Handle transform end for normal entities & vertices
+      if (!event.value) {
+        if (this.vertexEditMode) {
+           if (this.onVertexTransformEnd && this._selectedEntity && this._selectedVertexIndices.length > 0 && this._vertexDragMap) {
+             const em = this._selectedEntity.getComponent('EditableMesh');
+             if (em) {
+               const affectedIndices = Array.from(this._vertexDragMap.keys());
+               const starts = [];
+               const ends = [];
+               let changed = false;
+               
+               for (const uIdx of affectedIndices) {
+                 const start = this._vertexDragMap.get(uIdx).startPos;
+                 starts.push(start);
+                 
+                 const end = new THREE.Vector3(
+                   em.uniquePositions[uIdx * 3],
+                   em.uniquePositions[uIdx * 3 + 1],
+                   em.uniquePositions[uIdx * 3 + 2]
+                 );
+                 ends.push(end);
+                 
+                 if (!changed && end.distanceToSquared(start) > 0.0001) {
+                   changed = true;
+                 }
+               }
+               
+               if(changed) {
+                 this.onVertexTransformEnd(this._selectedEntity, affectedIndices, starts, ends);
+               }
+             }
+           }
+           this._vertexDragMap = null;
+           this._dummyDragStart = null;
+        } else if (this.onTransformEnd && this._selectedEntity && this.transformControls.object === this._selectedEntity.object3D) {
+          this.onTransformEnd(this._selectedEntity);
+        }
       }
     });
 
     this.transformControls.addEventListener('objectChange', () => {
       if (this.onTransformChange) {
+        if (this.vertexEditMode && this._selectedVertexIndices.length > 0 && this._selectedEntity && this._vertexDragMap && this._dummyDragStart) {
+          const em = this._selectedEntity.getComponent('EditableMesh');
+          if (em && em.mesh) {
+            // Calculate dummy movement in local space
+            const dummyStartLocal = this._dummyDragStart.clone();
+            em.mesh.worldToLocal(dummyStartLocal);
+            const dummyEndLocal = this._vertexDummy.position.clone();
+            em.mesh.worldToLocal(dummyEndLocal);
+            const localDelta = dummyEndLocal.clone().sub(dummyStartLocal);
+            
+            // Apply transformed deltas to all participating vertices
+            window.requestAnimationFrame(() => {
+              for (const [uIdx, data] of this._vertexDragMap.entries()) {
+                const mirroredLocalDelta = localDelta.clone();
+                mirroredLocalDelta.x *= data.scaleX;
+                mirroredLocalDelta.y *= data.scaleY;
+                mirroredLocalDelta.z *= data.scaleZ;
+                
+                const newLocalPos = data.startPos.clone().add(mirroredLocalDelta);
+                em.setUniqueVertexPosition(uIdx, newLocalPos.x, newLocalPos.y, newLocalPos.z);
+              }
+              this._updateVertexPoints();
+            });
+          }
+        }
         this.onTransformChange();
       }
     });
@@ -173,6 +300,7 @@ export class SceneView {
     scene.threeScene.add(this.transformControls.getHelper());
     scene.threeScene.add(this._editorAmbient);
     scene.threeScene.add(this._editorHemi);
+    scene.threeScene.add(this._vertexDummy);
 
     // Initialize post-processing with the scene
     this._setupPostProcess();
@@ -192,11 +320,113 @@ export class SceneView {
    * @param {import('../engine/Entity.js').Entity|null} entity
    */
   selectEntity(entity) {
-    if (entity && entity.object3D) {
-      this.transformControls.attach(entity.object3D);
+    this._selectedEntity = entity;
+    
+    if (this.vertexEditMode) {
+      if (entity && entity.hasComponent('EditableMesh')) {
+        this._selectedVertexIndices = [];
+        this._updateVertexPoints();
+        this.transformControls.detach();
+      } else if (entity && entity.hasComponent('ProceduralMesh') && !entity.hasComponent('EditableMesh')) {
+        // Hint: user needs to convert to EditableMesh first
+        this._removeVertexPoints();
+        this.transformControls.detach();
+        this._showVertexEditHint();
+      } else {
+        this._removeVertexPoints();
+        this.transformControls.detach();
+      }
     } else {
-      this.transformControls.detach();
+      this._removeVertexPoints();
+      if (entity && entity.object3D) {
+        this.transformControls.attach(entity.object3D);
+      } else {
+        this.transformControls.detach();
+      }
     }
+  }
+
+  setVertexEditMode(enabled) {
+    this.vertexEditMode = enabled;
+    this.selectEntity(this._selectedEntity);
+  }
+
+  setSymmetry(axis, enabled) {
+    if (this.symmetry[axis] !== undefined) {
+      this.symmetry[axis] = enabled;
+    }
+  }
+
+  _updateVertexPoints() {
+    this._removeVertexPoints();
+    if (!this._selectedEntity) return;
+    const em = this._selectedEntity.getComponent('EditableMesh');
+    if (!em || !em.mesh || em.uniquePositions.length === 0) return;
+
+    // Create a geometry purely for rendering the unique vertices
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(em.uniquePositions), 3));
+    
+    // Set colors for selection
+    const colors = new Float32Array(em.uniquePositions.length);
+    for (let i = 0; i < em.uniquePositions.length / 3; i++) {
+      if (this._selectedVertexIndices.includes(i)) {
+        colors[i*3] = 1; colors[i*3+1] = 1; colors[i*3+2] = 0; // Yellow (selected)
+      } else {
+        colors[i*3] = 1; colors[i*3+1] = 0; colors[i*3+2] = 0; // Red (unselected)
+      }
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const material = new THREE.PointsMaterial({
+      size: 0.2,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.8,
+      vertexColors: true
+    });
+    
+    this._vertexPoints = new THREE.Points(geometry, material);
+    this._vertexPoints.renderOrder = 999;
+    
+    // Directly add as a child to the mesh so local coordinate space binds properly and avoids offset bugs
+    em.mesh.add(this._vertexPoints);
+  }
+
+  _removeVertexPoints() {
+    if (this._vertexPoints) {
+      if (this._vertexPoints.parent) {
+        this._vertexPoints.parent.remove(this._vertexPoints);
+      }
+      this._vertexPoints.geometry.dispose(); // We created this one manually, so dispose it
+      this._vertexPoints.material.dispose();
+      this._vertexPoints = null;
+    }
+  }
+
+  _updateVertexDummyPos() {
+    if (this._selectedVertexIndices.length === 0) {
+      this.transformControls.detach();
+      return;
+    }
+    
+    const em = this._selectedEntity.getComponent('EditableMesh');
+    const centroid = new THREE.Vector3();
+    
+    for (const uIdx of this._selectedVertexIndices) {
+      const pos = new THREE.Vector3(
+        em.uniquePositions[uIdx * 3],
+        em.uniquePositions[uIdx * 3 + 1],
+        em.uniquePositions[uIdx * 3 + 2]
+      );
+      pos.applyMatrix4(em.mesh.matrixWorld);
+      centroid.add(pos);
+    }
+    centroid.divideScalar(this._selectedVertexIndices.length);
+    
+    this._vertexDummy.position.copy(centroid);
+    this._vertexDummy.rotation.copy(em.mesh.rotation);
+    this.transformControls.attach(this._vertexDummy);
   }
 
   /**
@@ -254,6 +484,31 @@ export class SceneView {
     this._mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this._mouse, this.camera);
+
+    if (this.vertexEditMode && this._vertexPoints && this._selectedEntity) {
+      this.raycaster.params.Points.threshold = 0.5;
+      const intersects = this.raycaster.intersectObject(this._vertexPoints, false);
+      if (intersects.length > 0) {
+        const hitIdx = intersects[0].index;
+        
+        if (event.shiftKey) {
+          const arrIdx = this._selectedVertexIndices.indexOf(hitIdx);
+          if (arrIdx === -1) {
+            this._selectedVertexIndices.push(hitIdx); // Add
+          } else {
+            this._selectedVertexIndices.splice(arrIdx, 1); // Remove
+          }
+        } else {
+          this._selectedVertexIndices = [hitIdx]; // Replace
+        }
+      } else if (!event.shiftKey) {
+        this._selectedVertexIndices = []; // Clear
+      }
+      
+      this._updateVertexPoints(); // Re-render colors
+      this._updateVertexDummyPos(); // Move gizmo to centroid
+      return;
+    }
 
     // Get all meshes in scene
     const meshes = [];
@@ -386,6 +641,39 @@ export class SceneView {
       if (t < 1) requestAnimationFrame(animate);
     };
     animate();
+  }
+
+  /**
+   * Show a temporary hint toast in the viewport
+   */
+  _showVertexEditHint() {
+    // Remove existing hint if any
+    if (this._hintToast) {
+      this._hintToast.remove();
+      this._hintToast = null;
+    }
+
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+      background: rgba(100, 80, 255, 0.9); color: #fff; padding: 8px 16px;
+      border-radius: 6px; font-size: 12px; font-weight: 600;
+      z-index: 1000; pointer-events: none;
+      animation: fadeInUp 0.3s ease;
+    `;
+    toast.textContent = '💡 Use "Convert to Editable Mesh" in Inspector first';
+    this.container.style.position = 'relative';
+    this.container.appendChild(toast);
+    this._hintToast = toast;
+
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.5s';
+        setTimeout(() => toast.remove(), 500);
+      }
+      if (this._hintToast === toast) this._hintToast = null;
+    }, 3000);
   }
 
   dispose() {

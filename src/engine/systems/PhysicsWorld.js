@@ -138,13 +138,34 @@ export class PhysicsWorld {
       case 'cylinder':
         colliderDesc = RAPIER.ColliderDesc.cylinder(col.height * 0.5 * scale.y, col.radius * Math.max(scale.x, scale.z));
         break;
-      default: // 'box'
-        colliderDesc = RAPIER.ColliderDesc.cuboid(
-          col.size.x * scale.x,
-          col.size.y * scale.y,
-          col.size.z * scale.z
-        );
+      case 'convex':
+      case 'mesh': {
+        const geoData = this._getGeometryData(entity, scale);
+        if (geoData) {
+            if (col.shape === 'mesh' && rb.bodyType !== 'dynamic') {
+                colliderDesc = RAPIER.ColliderDesc.trimesh(geoData.vertices, geoData.indices);
+            } else {
+                // If it's convex OR (mesh + dynamic), we must use ConvexHull since dynamic trimeshes are invalid
+                colliderDesc = RAPIER.ColliderDesc.convexHull(geoData.vertices);
+                if (!colliderDesc) {
+                    colliderDesc = RAPIER.ColliderDesc.cuboid(col.size.x * scale.x, col.size.y * scale.y, col.size.z * scale.z);
+                }
+            }
+        } else {
+            colliderDesc = RAPIER.ColliderDesc.cuboid(col.size.x * scale.x, col.size.y * scale.y, col.size.z * scale.z);
+        }
         break;
+      }
+      default: { // 'box'
+        const s = entity.getComponent('Transform')?.scale || { x: 1, y: 1, z: 1 };
+        colliderDesc = RAPIER.ColliderDesc.cuboid(col.size.x * s.x, col.size.y * s.y, col.size.z * s.z);
+        break;
+      }
+    }
+
+    if (!colliderDesc) {
+      console.warn(`[PhysicsWorld] Failed to create collider for entity "${entity.name}" (shape: ${col.shape})`);
+      return;
     }
 
     colliderDesc.setRestitution(col.restitution);
@@ -208,6 +229,55 @@ export class PhysicsWorld {
     if (this.debugVisible) {
       this._updateDebugDraw();
     }
+  }
+
+  /**
+   * Helper to extract geometry vertex/index data for custom colliders
+   * @param {import('../Entity.js').Entity} entity 
+   * @param {THREE.Vector3} scale 
+   */
+  _getGeometryData(entity, scale) {
+    let geom = null;
+    const pm = entity.getComponent('ProceduralMesh');
+    const em = entity.getComponent('EditableMesh');
+    const mr = entity.getComponent('MeshRenderer');
+    
+    if (em && em.mesh && em.mesh.geometry) {
+      geom = em.mesh.geometry;
+    } else if (pm && pm.mesh && pm.mesh.geometry) {
+      geom = pm.mesh.geometry;
+    } else if (mr && entity.object3D.children.length > 0) {
+      entity.object3D.traverse(c => {
+         if(!geom && c.isMesh && c.geometry) geom = c.geometry;
+      });
+    }
+
+    if (!geom) return null;
+    
+    // Some procedural meshes might not have updated positions in standard attributes without rebuild, 
+    // but they update their THREE geometries synchronously so posAttr is fine.
+    const posAttr = geom.attributes.position;
+    if (!posAttr) return null;
+    
+    const vertices = new Float32Array(posAttr.count * 3);
+    for(let i=0; i<posAttr.count; i++) {
+        vertices[i*3] = posAttr.getX(i) * scale.x;
+        vertices[i*3+1] = posAttr.getY(i) * scale.y;
+        vertices[i*3+2] = posAttr.getZ(i) * scale.z;
+    }
+    
+    let indices = null;
+    if (geom.index) {
+        indices = new Uint32Array(geom.index.count);
+        for(let i=0; i<geom.index.count; i++) {
+            indices[i] = geom.index.getX(i);
+        }
+    } else {
+        indices = new Uint32Array(posAttr.count);
+        for(let i=0; i<posAttr.count; i++) indices[i] = i;
+    }
+    
+    return { vertices, indices };
   }
 
   /**
@@ -424,6 +494,19 @@ export class PhysicsWorld {
         }
         case 'cylinder': {
           geom = new THREE.CylinderGeometry(col.radius, col.radius, col.height, 12);
+          break;
+        }
+        case 'convex':
+        case 'mesh': {
+          const s = entity.getComponent('Transform')?.scale || { x: 1, y: 1, z: 1 };
+          const data = this._getGeometryData(entity, s);
+          if (data) {
+             geom = new THREE.BufferGeometry();
+             geom.setAttribute('position', new THREE.BufferAttribute(data.vertices, 3));
+             if (data.indices) geom.setIndex(new THREE.BufferAttribute(data.indices, 1));
+          } else {
+             geom = new THREE.BoxGeometry(col.size.x * s.x * 2, col.size.y * s.y * 2, col.size.z * s.z * 2);
+          }
           break;
         }
         default: { // box
