@@ -250,9 +250,11 @@ export class Hierarchy {
       return '💡';
     }
     if (entity.hasComponent('Camera')) return '🎥';
+    if (entity.hasComponent('AnimationPlayer')) return '🎞️';
     if (entity.hasComponent('ParticleEmitter')) return '✨';
     if (entity.hasComponent('Animator')) return '🎬';
     if (entity.hasComponent('GLBModel')) return '🏗️';
+    if (entity.hasComponent('InstancedMeshRenderer')) return '🧱';
     if (entity.hasComponent('RigidBody') && entity.hasComponent('ProceduralMesh')) return '⚛️';
     if (entity.hasComponent('Script') && entity.hasComponent('ProceduralMesh')) return '📝';
     if (entity.hasComponent('ProceduralMesh')) return '🔷';

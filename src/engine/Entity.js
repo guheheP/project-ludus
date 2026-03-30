@@ -101,6 +101,35 @@ export class Entity {
   }
 
   /**
+   * Set entity active state (recursive: children follow parent)
+   * When deactivating, all descendants are hidden.
+   * When reactivating, each child respects its own active state.
+   * @param {boolean} active
+   */
+  setActive(active) {
+    this.active = active;
+    this.object3D.visible = active;
+    for (const child of this.children) {
+      if (active) {
+        // Only reactivate children that have their own active flag true
+        child.object3D.visible = child.active;
+        if (child.active) {
+          // Recursively restore children's visibility
+          for (const grandchild of child.children) {
+            grandchild.setActive(grandchild.active);
+          }
+        }
+      } else {
+        // Deactivating: hide all descendants
+        child.object3D.visible = false;
+        for (const grandchild of child.children) {
+          grandchild.setActive(false);
+        }
+      }
+    }
+  }
+
+  /**
    * Add a child entity
    * @param {Entity} child
    */

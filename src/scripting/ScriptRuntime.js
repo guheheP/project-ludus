@@ -59,6 +59,15 @@ export class ScriptRuntime {
   /** @type {Array<{entity: object, delay: number}>} Pending delayed destroys */
   _pendingDestroys = [];
 
+  /** @type {string|null} Pending scene load request (set by script, processed by Editor) */
+  _pendingSceneLoad = null;
+
+  /** @type {Function|null} Called when a scene load is requested */
+  onSceneLoad = null;
+
+  /** @type {Map<string, object>} In-memory prefab registry (loaded from project) */
+  _prefabRegistry = new Map();
+
   constructor(scene, input, physics = null, audioSystem = null, uiSystem = null, tweenManager = null) {
     this.scene = scene;
     this.input = input;
@@ -100,6 +109,7 @@ export class ScriptRuntime {
 
     // Compile and start all scripts
     this.scene.entityMap.forEach((entity) => {
+      if (!entity.active) return;
       if (entity.hasComponent('Script')) {
         const script = entity.getComponent('Script');
         if (!script.enabled) return;
@@ -125,6 +135,7 @@ export class ScriptRuntime {
     }
 
     this.scene.entityMap.forEach((entity) => {
+      if (!entity.active) return;
       if (entity.hasComponent('Script')) {
         const script = entity.getComponent('Script');
         if (!script.enabled || script._hasError) return;
@@ -176,6 +187,14 @@ export class ScriptRuntime {
         this._pendingDestroys.splice(i, 1);
       }
     }
+    // Process pending scene load (deferred to end of frame)
+    if (this._pendingSceneLoad) {
+      const sceneName = this._pendingSceneLoad;
+      this._pendingSceneLoad = null;
+      if (this.onSceneLoad) {
+        this.onSceneLoad(sceneName);
+      }
+    }
 
     // Clear per-frame input
     this.input.endFrame();
@@ -196,6 +215,7 @@ export class ScriptRuntime {
         const script = entity.getComponent('Script');
         script._startFn = null;
         script._updateFn = null;
+        script._onCollisionFn = null;
         script._runtimeContext = null;
         script._started = false;
         script._hasError = false;
@@ -224,9 +244,10 @@ export class ScriptRuntime {
         name: entity.name,
         id: entity.id,
         object3D: entity.object3D,
+        get tag() { return entity.tag; },
+        set tag(v) { entity.tag = v; },
         setActive(active) {
-          entity.active = active;
-          entity.object3D.visible = active;
+          entity.setActive(active);
         },
         get isActive() { return entity.active; },
       },
@@ -271,6 +292,14 @@ export class ScriptRuntime {
         destroyDelayed: (entityRef, delay) => {
           this._pendingDestroys.push({ entity: entityRef, delay });
         },
+        // Phase 11: Scene switching
+        loadScene: (sceneName) => {
+          this._pendingSceneLoad = sceneName;
+        },
+        // Phase 11: Prefab instantiation
+        instantiatePrefab: (prefabName, options = {}) => {
+          return this._instantiatePrefab(prefabName, options);
+        },
       },
       input: {
         isKeyDown: (key) => this.input.isKeyDown(key),
@@ -308,6 +337,8 @@ export class ScriptRuntime {
       renderer: this._createRendererAPI(entity),
       // Game global store (15B-5)
       game: this._createGameAPI(),
+      // Physics raycasting API (15C-1)
+      physics: this._createPhysicsAPI(),
       // Console redirect
       console: {
         log: (...args) => {
@@ -345,7 +376,7 @@ export class ScriptRuntime {
       const factory = new Function(
         'entity', 'transform', 'scene', 'input', 'time', 'console', 'Math', 'THREE',
         'rigidbody', 'audio', 'particles', 'tween', 'ui',
-        'camera', 'renderer', 'game',
+        'camera', 'renderer', 'game', 'physics',
         wrappedCode
       );
 
@@ -367,6 +398,7 @@ export class ScriptRuntime {
         context.camera,
         context.renderer,
         context.game,
+        context.physics,
       );
 
       script._startFn = result.start;
@@ -555,6 +587,71 @@ export class ScriptRuntime {
     this.scene.removeEntity(entity);
   }
 
+  /**
+   * Instantiate a prefab by name from the registry
+   * @param {string} prefabName
+   * @param {object} options - { position, rotation, scale }
+   * @returns {object|null} wrapped entity or null if prefab not found
+   */
+  _instantiatePrefab(prefabName, options = {}) {
+    const prefabData = this._prefabRegistry.get(prefabName);
+    if (!prefabData) {
+      if (this.onLog) this.onLog('warn', `Prefab not found: "${prefabName}"`);
+      return null;
+    }
+
+    // Use SceneSerializer.deserializeEntity to construct the entity
+    // We need to import it dynamically to avoid circular deps
+    try {
+      // Deep clone to avoid mutating the template
+      const data = JSON.parse(JSON.stringify(prefabData));
+
+      // Override position/rotation/scale if provided
+      if (options.position && data.components?.Transform) {
+        data.components.Transform.position = {
+          x: options.position.x ?? 0,
+          y: options.position.y ?? 0,
+          z: options.position.z ?? 0,
+        };
+      }
+      if (options.rotation && data.components?.Transform) {
+        data.components.Transform.rotation = {
+          x: options.rotation.x ?? 0,
+          y: options.rotation.y ?? 0,
+          z: options.rotation.z ?? 0,
+        };
+      }
+      if (options.scale && data.components?.Transform) {
+        data.components.Transform.scale = {
+          x: options.scale.x ?? 1,
+          y: options.scale.y ?? 1,
+          z: options.scale.z ?? 1,
+        };
+      }
+
+      // Give it a new name if desired
+      data.name = options.name || data.name || prefabName;
+
+      // Use the dynamic import approach to get SceneSerializer
+      import('../editor/SceneSerializer.js').then(({ SceneSerializer }) => {
+        const entity = SceneSerializer.deserializeEntity(data, this.scene, null);
+
+        // Register physics if applicable
+        if (entity.hasComponent('RigidBody') && entity.hasComponent('Collider')) {
+          if (this.physics && this.physics.initialized) {
+            this.physics.addBody(entity);
+          }
+        }
+      });
+
+      // Return a simple wrapper (entity will be available next frame)
+      return { name: data.name, prefab: prefabName };
+    } catch (err) {
+      if (this.onError) this.onError(`Failed to instantiate prefab "${prefabName}": ${err.message}`);
+      return null;
+    }
+  }
+
   // =============================================
   // 15A-3: Enhanced _wrapEntity
   // =============================================
@@ -570,12 +667,12 @@ export class ScriptRuntime {
     return {
       name: entity.name,
       id: entity.id,
-      tag: entity.tag,
+      get tag() { return entity.tag; },
+      set tag(v) { entity.tag = v; },
       object3D: entity.object3D,
       get isActive() { return entity.active; },
       setActive(active) {
-        entity.active = active;
-        entity.object3D.visible = active;
+        entity.setActive(active);
       },
       transform: t ? self._createTransformProxy(t) : null,
       /** 15A-3: Access any component by name */
@@ -833,6 +930,54 @@ export class ScriptRuntime {
       has(key) { return store.has(key); },
       delete(key) { return store.delete(key); },
       clear() { store.clear(); },
+    };
+  }
+
+  // =============================================
+  // 15C-1: Physics Raycast API
+  // =============================================
+
+  _createPhysicsAPI() {
+    const pw = this.physics;
+    if (!pw) return null;
+
+    const self = this;
+    return {
+      /**
+       * Cast a ray and return the first hit
+       * @param {{x,y,z}} origin
+       * @param {{x,y,z}} direction (normalized)
+       * @param {number} maxDistance
+       */
+      raycast(origin, direction, maxDistance = 100) {
+        const result = pw.raycast(origin, direction, maxDistance);
+        if (result && result.hit && result.entity) {
+          result.entity = self._wrapEntity(result.entity);
+        }
+        return result;
+      },
+      /**
+       * Cast a ray and return all hits
+       */
+      raycastAll(origin, direction, maxDistance = 100) {
+        const results = pw.raycastAll(origin, direction, maxDistance);
+        return results.map(r => {
+          if (r.entity) r.entity = self._wrapEntity(r.entity);
+          return r;
+        });
+      },
+      /**
+       * Set world gravity
+       */
+      setGravity(x, y, z) {
+        pw.setGravity(x, y, z);
+      },
+      /**
+       * Get current gravity
+       */
+      get gravity() {
+        return pw.world ? pw.world.gravity : { x: 0, y: -9.81, z: 0 };
+      },
     };
   }
 }

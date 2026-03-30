@@ -9,6 +9,8 @@ import { Collider } from '../engine/components/Collider.js';
 import { GLBModel } from '../engine/components/GLBModel.js';
 import { ParticleEmitter } from '../engine/components/ParticleEmitter.js';
 import { Animator } from '../engine/components/Animator.js';
+import { AnimationPlayer } from '../engine/components/AnimationPlayer.js';
+import { InstancedMeshRenderer } from '../engine/components/InstancedMeshRenderer.js';
 import { Camera } from '../engine/components/Camera.js';
 import { ProceduralMesh } from '../modeling/ProceduralMesh.js';
 import { TwistModifier } from '../modeling/modifiers/Twist.js';
@@ -26,6 +28,7 @@ import { PhysicsWorld } from '../engine/systems/PhysicsWorld.js';
 import { AudioSystem } from '../engine/systems/AudioSystem.js';
 import { AssetManager } from '../engine/AssetManager.js';
 import { ProjectBrowser } from './panels/ProjectBrowser.js';
+import { TimelinePanel } from './panels/TimelinePanel.js';
 import { AudioListener } from '../engine/components/AudioListener.js';
 import { AudioSource } from '../engine/components/AudioSource.js';
 import { UICanvas } from '../engine/components/UICanvas.js';
@@ -38,6 +41,7 @@ import { AddEntityCommand, DeleteEntityCommand } from './commands/EntityCommands
 import { TransformCommand } from './commands/TransformCommand.js';
 import { RemoveComponentCommand } from './commands/ComponentCommands.js';
 import { ReparentCommand } from './commands/ReparentCommand.js';
+import { EnvironmentSystem } from '../engine/systems/EnvironmentSystem.js';
 
 const THREE_REVISION = THREE.REVISION;
 
@@ -147,6 +151,10 @@ export class Editor {
     // Scene
     this.scene = new Scene('Main Scene');
 
+    // Phase 12B: Environment System (sky, fog, background)
+    this.environment = new EnvironmentSystem(this.scene.threeScene);
+    this.environment.apply();
+
     // Scene View
     const sceneContainer = document.getElementById('scene-container');
     this.sceneView = new SceneView(sceneContainer);
@@ -186,6 +194,10 @@ export class Editor {
     };
     // postProcess will be set after sceneView is created (below)
     this.inspector.postProcess = this.sceneView.postProcess;
+    // Phase 12B: Asset manager for texture slots
+    this.inspector.assetManager = this.assetManager;
+    // Phase 12B: Environment system for Scene root
+    this.inspector.environment = this.environment;
 
     // Toolbar
     const toolbarEl = document.getElementById('toolbar');
@@ -222,6 +234,13 @@ export class Editor {
       this.projectBrowser.onAddModelToScene = (assetId, fileName) => {
         this._addGLBModel(assetId, fileName);
       };
+    }
+
+    // Timeline panel (in bottom panel)
+    const timelineContent = document.getElementById('timeline-content');
+    if (timelineContent) {
+      this.timelinePanel = new TimelinePanel(timelineContent);
+      this.timelinePanel.onChanged = () => this._markProjectDirty();
     }
 
     // SceneView drop handler for model assets
@@ -273,9 +292,18 @@ export class Editor {
 
     // Update script editor
     this.scriptEditor.setEntity(entity);
+
+    // Update timeline panel
+    if (this.timelinePanel) {
+      this.timelinePanel.setEntity(entity);
+    }
     // Auto-switch to Script tab when selecting entity with script
     if (entity && entity.hasComponent('Script') && this.activeBottomTab !== 'script') {
       this._switchBottomTab('script');
+    }
+    // Auto-switch to Timeline tab when selecting entity with AnimationPlayer
+    if (entity && entity.hasComponent('AnimationPlayer') && this.activeBottomTab !== 'timeline') {
+      this._switchBottomTab('timeline');
     }
   }
 
@@ -314,6 +342,10 @@ export class Editor {
         setTimeout(() => this.scriptEditor.layout(), 50);
       }
     }
+    const timelineContent = document.getElementById('timeline-content');
+    if (timelineContent) {
+      timelineContent.style.display = tabName === 'timeline' ? 'flex' : 'none';
+    }
     if (projectContent) {
       projectContent.style.display = tabName === 'project' ? 'flex' : 'none';
     }
@@ -336,7 +368,7 @@ export class Editor {
     }
   }
 
-  _play() {
+  async _play() {
     if (this.mode === 'play') return;
 
     if (this.mode === 'edit') {
@@ -368,6 +400,15 @@ export class Editor {
         // Defer stop to avoid re-entrant issues mid-update loop
         setTimeout(() => this._stop(), 0);
       };
+
+      // Phase 11: Scene switching callback
+      this.scriptRuntime.onSceneLoad = async (sceneName) => {
+        await this._loadSceneAtRuntime(sceneName);
+      };
+
+      // Phase 11: Load prefab registry from project
+      await this._loadPrefabRegistry();
+
       this.scriptRuntime.start();
 
       // If a Camera entity exists, switch rendering to its camera
@@ -739,12 +780,28 @@ export class Editor {
       entity.addComponent(anim);
     }
 
+    // AnimationPlayer
+    if (src.hasComponent('AnimationPlayer')) {
+      const srcAP = src.getComponent('AnimationPlayer');
+      const ap = new AnimationPlayer();
+      ap.deserialize(srcAP.serialize());
+      entity.addComponent(ap);
+    }
+
     // Camera
     if (src.hasComponent('Camera')) {
       const srcCam = src.getComponent('Camera');
       const cam = new Camera();
       cam.deserialize(srcCam.serialize());
       entity.addComponent(cam);
+    }
+
+    // InstancedMeshRenderer
+    if (src.hasComponent('InstancedMeshRenderer')) {
+      const srcIR = src.getComponent('InstancedMeshRenderer');
+      const ir = new InstancedMeshRenderer();
+      ir.deserialize(srcIR.serialize());
+      entity.addComponent(ir);
     }
 
     this.hierarchy.refresh();
@@ -971,6 +1028,11 @@ function update(dt) {
         this.selectEntity(entity);
         this.sceneView.focusOn(entity);
       }, shortcut: 'F' });
+      if (this.projectManager.isOpen) {
+        items.push({ label: 'Save as Prefab', icon: '📦', action: () => {
+          this._saveEntityAsPrefab(entity);
+        }});
+      }
     }
 
     this.contextMenu.show(x, y, items);
@@ -1077,6 +1139,8 @@ function update(dt) {
       await this._reloadGLBModels();
       // Initialize particle emitters
       this._initParticleEmitters();
+      // Phase 12B: Load textures
+      this._loadAllTexturesInScene();
       this.selectEntity(null);
       this.hierarchy.refresh();
       this._log('info', 'Project scene loaded from disk');
@@ -1169,6 +1233,13 @@ function update(dt) {
       if (entity.hasComponent('Animator')) {
         entity.getComponent('Animator').update(dt);
       }
+      if (entity.hasComponent('AnimationPlayer')) {
+        const ap = entity.getComponent('AnimationPlayer');
+        if (ap.autoPlay && !ap.playing && !ap._initialState) {
+          ap.play();
+        }
+        ap.update(dt);
+      }
     });
   }
 
@@ -1192,6 +1263,11 @@ function update(dt) {
       this.sceneView.postProcess.deserialize(this.scene._postProcessData);
       delete this.scene._postProcessData;
     }
+    // Phase 12B: Apply environment settings
+    if (this.scene._environmentData && this.environment) {
+      this.environment.deserialize(this.scene._environmentData);
+      delete this.scene._environmentData;
+    }
   }
 
   /**
@@ -1214,7 +1290,8 @@ function update(dt) {
 
     // Serialize and save scene
     const sceneData = SceneSerializer.serialize(this.scene, {
-      postProcess: this.sceneView?.postProcess
+      postProcess: this.sceneView?.postProcess,
+      environment: this.environment,
     });
     await this.projectManager.saveScene(sceneData);
   }
@@ -1229,6 +1306,151 @@ function update(dt) {
       .replace(/[^a-z0-9_-]/g, '_')
       .replace(/_+/g, '_');
     return `${baseName}.js`;
+  }
+
+  // =============================================
+  // Phase 11: Scene Management
+  // =============================================
+
+  /**
+   * Load a scene at runtime (called from script via scene.loadScene())
+   * @param {string} sceneName
+   */
+  async _loadSceneAtRuntime(sceneName) {
+    if (!this.projectManager.isOpen) {
+      this._log('warn', `Cannot load scene "${sceneName}" — no project open`);
+      return;
+    }
+
+    const sceneData = await this.projectManager.loadScene(sceneName);
+    if (!sceneData) {
+      this._log('error', `Scene not found: "${sceneName}"`);
+      return;
+    }
+
+    this._log('info', `🔄 Loading scene: ${sceneName}`);
+
+    // Stop current scripts
+    if (this.scriptRuntime) {
+      this.scriptRuntime.stop();
+    }
+
+    // Reset physics
+    if (this.physics && this.physics.initialized) {
+      this.physics.reset();
+    }
+
+    // Clear UI
+    if (this.uiSystem) {
+      this.uiSystem.clearAll();
+    }
+
+    // Kill tweens
+    if (this.tweenManager) {
+      this.tweenManager.killAll();
+    }
+
+    // Deserialize new scene
+    SceneSerializer.deserialize(sceneData, this.scene);
+
+    // Re-register physics bodies
+    if (this.physics && this.physics.initialized) {
+      this.physics.initDebug(this.scene.threeScene);
+      this._registerPhysicsBodies();
+    }
+
+    // Re-apply post-processing settings if present
+    if (sceneData.postProcess && this.sceneView?.postProcess) {
+      this.sceneView.postProcess.deserialize(sceneData.postProcess);
+    }
+
+    // Reload prefab registry
+    await this._loadPrefabRegistry();
+
+    // Restart scripts
+    if (this.scriptRuntime) {
+      this.scriptRuntime.scene = this.scene;
+      this.scriptRuntime.onSceneLoad = async (name) => {
+        await this._loadSceneAtRuntime(name);
+      };
+      this.scriptRuntime.start();
+
+      // Update camera
+      if (this.scriptRuntime.activeCamera) {
+        this.sceneView._gameCamera = this.scriptRuntime.activeCamera;
+      }
+    }
+
+    // Refresh editor UI
+    this.hierarchy?.refresh();
+    this.inspector?.setEntity(null);
+
+    this._log('info', `✅ Scene loaded: ${sceneName}`);
+  }
+
+  /**
+   * Load all prefabs from the project into the script runtime registry
+   */
+  async _loadPrefabRegistry() {
+    if (!this.scriptRuntime || !this.projectManager.isOpen) return;
+
+    this.scriptRuntime._prefabRegistry.clear();
+
+    const prefabNames = await this.projectManager.listPrefabs();
+    for (const name of prefabNames) {
+      const data = await this.projectManager.loadPrefab(name);
+      if (data) {
+        this.scriptRuntime._prefabRegistry.set(name, data);
+      }
+    }
+
+    if (prefabNames.length > 0) {
+      this._log('info', `Loaded ${prefabNames.length} prefab(s): ${prefabNames.join(', ')}`);
+    }
+  }
+
+  /**
+   * Save entity as a prefab
+   * @param {import('../engine/Entity.js').Entity} entity
+   */
+  async _saveEntityAsPrefab(entity) {
+    if (!this.projectManager.isOpen) {
+      this._log('warn', 'Cannot save prefab — no project open');
+      return;
+    }
+
+    const prefabData = SceneSerializer.serializeEntity(entity);
+    const prefabName = entity.name
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_')
+      .replace(/_+/g, '_');
+
+    await this.projectManager.savePrefab(prefabName, prefabData);
+    this._log('info', `💾 Saved prefab: ${prefabName}`);
+  }
+
+  // =============================================
+  // Phase 12B: Texture Loading
+  // =============================================
+
+  /**
+   * Load all textures for MeshRenderer components in the scene
+   */
+  _loadAllTexturesInScene() {
+    if (!this.assetManager) return;
+
+    this.scene.entityMap.forEach((entity) => {
+      // MeshRenderer textures
+      if (entity.hasComponent('MeshRenderer')) {
+        const mr = entity.getComponent('MeshRenderer');
+        if (mr.loadAllTextures) mr.loadAllTextures(this.assetManager);
+      }
+      // ProceduralMesh textures
+      if (entity.hasComponent('ProceduralMesh')) {
+        const pm = entity.getComponent('ProceduralMesh');
+        if (pm.loadAllTextures) pm.loadAllTextures(this.assetManager);
+      }
+    });
   }
 
   /**
@@ -1423,6 +1645,11 @@ function update(dt) {
       // Update tweens
       if (this.tweenManager) {
         this.tweenManager.update(dt);
+      }
+
+      // Phase 12B: Update sky dome to follow camera
+      if (this.environment) {
+        this.environment.update(this.sceneView.camera);
       }
 
       this.sceneView.render();

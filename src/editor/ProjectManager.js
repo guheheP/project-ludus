@@ -80,6 +80,7 @@ export class ProjectManager {
       this.scenesHandle = await this._ensureDir(this.rootHandle, 'scenes');
       this.scriptsHandle = await this._ensureDir(this.rootHandle, 'scripts');
       this.assetsHandle = await this._ensureDir(this.rootHandle, 'assets');
+      this.prefabsHandle = await this._ensureDir(this.rootHandle, 'prefabs');
 
       // Create project metadata if not existing
       await this._ensureProjectMeta();
@@ -109,6 +110,7 @@ export class ProjectManager {
     this.scenesHandle = null;
     this.scriptsHandle = null;
     this.assetsHandle = null;
+    this.prefabsHandle = null;
     this.isOpen = false;
     this.projectName = '';
     this._dirty = false;
@@ -125,12 +127,13 @@ export class ProjectManager {
   /**
    * Save scene data to scenes/main.ludus.json
    * @param {object} sceneData - Serialized scene data
+   * @param {string} [sceneName='main'] - Scene name (without extension)
    */
-  async saveScene(sceneData) {
+  async saveScene(sceneData, sceneName = 'main') {
     if (!this.isOpen || !this.scenesHandle) return;
 
     try {
-      const fileName = 'main.ludus.json';
+      const fileName = `${sceneName}.ludus.json`;
       const json = JSON.stringify(sceneData, null, 2);
       await this._writeFile(this.scenesHandle, fileName, json);
       this._dirty = false;
@@ -142,19 +145,123 @@ export class ProjectManager {
   }
 
   /**
-   * Load scene data from scenes/main.ludus.json
+   * Load scene data from scenes/<sceneName>.ludus.json
+   * @param {string} [sceneName='main']
    * @returns {Promise<object|null>}
    */
-  async loadScene() {
+  async loadScene(sceneName = 'main') {
     if (!this.isOpen || !this.scenesHandle) return null;
 
     try {
-      const json = await this._readFile(this.scenesHandle, 'main.ludus.json');
+      const json = await this._readFile(this.scenesHandle, `${sceneName}.ludus.json`);
       if (json === null) return null;
       return JSON.parse(json);
     } catch (err) {
       this._log('error', `Failed to load scene: ${err.message}`);
       return null;
+    }
+  }
+
+  /**
+   * List all scene files
+   * @returns {Promise<string[]>} scene names (without extension)
+   */
+  async listScenes() {
+    if (!this.isOpen || !this.scenesHandle) return [];
+    const scenes = [];
+    try {
+      for await (const entry of this.scenesHandle.values()) {
+        if (entry.kind === 'file' && entry.name.endsWith('.ludus.json')) {
+          scenes.push(entry.name.replace('.ludus.json', ''));
+        }
+      }
+    } catch (err) {
+      this._log('error', `Failed to list scenes: ${err.message}`);
+    }
+    return scenes;
+  }
+
+  /**
+   * Delete a scene file
+   * @param {string} sceneName
+   */
+  async deleteScene(sceneName) {
+    if (!this.isOpen || !this.scenesHandle) return;
+    try {
+      await this.scenesHandle.removeEntry(`${sceneName}.ludus.json`);
+      this._log('info', `Scene deleted: ${sceneName}`);
+    } catch (err) {
+      this._log('error', `Failed to delete scene: ${err.message}`);
+    }
+  }
+
+  // =============================================
+  // Prefabs
+  // =============================================
+
+  /**
+   * Save a prefab (serialized entity template)
+   * @param {string} prefabName
+   * @param {object} prefabData
+   */
+  async savePrefab(prefabName, prefabData) {
+    if (!this.isOpen || !this.prefabsHandle) return;
+    try {
+      const json = JSON.stringify(prefabData, null, 2);
+      await this._writeFile(this.prefabsHandle, `${prefabName}.prefab.json`, json);
+      this._log('info', `Prefab saved: ${prefabName}`);
+    } catch (err) {
+      this._log('error', `Failed to save prefab: ${err.message}`);
+    }
+  }
+
+  /**
+   * Load a prefab
+   * @param {string} prefabName
+   * @returns {Promise<object|null>}
+   */
+  async loadPrefab(prefabName) {
+    if (!this.isOpen || !this.prefabsHandle) return null;
+    try {
+      const json = await this._readFile(this.prefabsHandle, `${prefabName}.prefab.json`);
+      if (json === null) return null;
+      return JSON.parse(json);
+    } catch (err) {
+      this._log('error', `Failed to load prefab: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * List all prefabs
+   * @returns {Promise<string[]>}
+   */
+  async listPrefabs() {
+    if (!this.isOpen || !this.prefabsHandle) return [];
+    const prefabs = [];
+    try {
+      for await (const entry of this.prefabsHandle.values()) {
+        if (entry.kind === 'file' && entry.name.endsWith('.prefab.json')) {
+          prefabs.push(entry.name.replace('.prefab.json', ''));
+        }
+      }
+    } catch (err) {
+      this._log('error', `Failed to list prefabs: ${err.message}`);
+    }
+    return prefabs;
+  }
+
+  /**
+   * Delete a prefab
+   * @param {string} prefabName
+   */
+  async deletePrefab(prefabName) {
+    if (!this.isOpen || !this.prefabsHandle) return;
+    try {
+      await this.prefabsHandle.removeEntry(`${prefabName}.prefab.json`);
+      this._log('info', `Prefab deleted: ${prefabName}`);
+    } catch (err) {
+      this._log('error', `Failed to delete prefab: ${err.message}`);
     }
   }
 

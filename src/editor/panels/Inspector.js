@@ -3,6 +3,7 @@ import { GEOMETRY_TYPES } from '../../engine/components/MeshRenderer.js';
 import { MODIFIER_TYPES, SHAPE_PARAMS } from '../../modeling/ProceduralMesh.js';
 import { PARTICLE_PRESETS } from '../../engine/components/ParticleEmitter.js';
 import { ANIMATION_TYPES } from '../../engine/components/Animator.js';
+import { DISTRIBUTION_PATTERNS } from '../../engine/components/InstancedMeshRenderer.js';
 
 /**
  * Inspector Panel — Property editor for selected entity
@@ -109,9 +110,24 @@ export class Inspector {
       this._renderAnimator();
     }
 
+    // AnimationPlayer
+    if (this.entity.hasComponent('AnimationPlayer')) {
+      this._renderAnimationPlayer();
+    }
+
     // Camera
     if (this.entity.hasComponent('Camera')) {
       this._renderCamera();
+    }
+
+    // InstancedMeshRenderer
+    if (this.entity.hasComponent('InstancedMeshRenderer')) {
+      this._renderInstancedMeshRenderer();
+    }
+
+    // Phase 12B: Environment settings (shown on Scene root)
+    if (this.entity.name === 'Scene' && this.environment) {
+      this._renderEnvironment();
     }
 
     // Add Component button
@@ -155,6 +171,41 @@ export class Inspector {
     div.appendChild(input);
 
     this.container.appendChild(div);
+
+    // Tag field
+    const tagRow = document.createElement('div');
+    tagRow.style.cssText = 'display:flex; align-items:center; gap:6px; padding:2px 12px 6px 12px;';
+
+    const tagLabel = document.createElement('span');
+    tagLabel.style.cssText = 'font-size:11px; color:var(--text-muted); min-width:28px;';
+    tagLabel.textContent = 'Tag';
+    tagRow.appendChild(tagLabel);
+
+    const tagInput = document.createElement('input');
+    tagInput.type = 'text';
+    tagInput.value = this.entity.tag || '';
+    tagInput.placeholder = 'None';
+    tagInput.setAttribute('list', 'inspector-tag-presets');
+    tagInput.style.cssText = 'flex:1; background:var(--bg-tertiary); border:1px solid var(--border-light); border-radius:var(--radius-sm); padding:3px 6px; color:var(--text-primary); font-size:11px;';
+    tagInput.addEventListener('change', (e) => {
+      this.entity.tag = e.target.value.trim();
+      this._emitChange();
+    });
+    tagRow.appendChild(tagInput);
+
+    // Preset datalist
+    if (!document.getElementById('inspector-tag-presets')) {
+      const datalist = document.createElement('datalist');
+      datalist.id = 'inspector-tag-presets';
+      for (const t of ['Player', 'Enemy', 'Item', 'Obstacle', 'Trigger', 'UI', 'Ground', 'Projectile', 'NPC']) {
+        const opt = document.createElement('option');
+        opt.value = t;
+        datalist.appendChild(opt);
+      }
+      document.body.appendChild(datalist);
+    }
+
+    this.container.appendChild(tagRow);
   }
 
   // =============================================
@@ -235,6 +286,61 @@ export class Inspector {
 
     body.appendChild(this._createCheckboxRow('Wireframe', pm.wireframe, (val) => {
       pm.setWireframe(val);
+      this._emitChange();
+    }));
+
+    // Phase 12B: Emissive
+    body.appendChild(this._createColorRow('Emissive', pm.emissiveColor || '#000000', (val) => {
+      pm.emissiveColor = val;
+      if (pm.mesh?.material) pm.mesh.material.emissive.set(val);
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Emissive Int.', pm.emissiveIntensity || 0, 0, 5, 0.1, (val) => {
+      pm.emissiveIntensity = val;
+      if (pm.mesh?.material) pm.mesh.material.emissiveIntensity = val;
+      this._emitChange();
+    }));
+
+    // Phase 12B: Texture slots
+    const textureSlots = [
+      { label: 'Diffuse Map', prop: 'diffuseMapId', slot: 'diffuse' },
+      { label: 'Normal Map', prop: 'normalMapId', slot: 'normal' },
+      { label: 'Roughness Map', prop: 'roughnessMapId', slot: 'roughness' },
+      { label: 'Metalness Map', prop: 'metalnessMapId', slot: 'metalness' },
+      { label: 'Emissive Map', prop: 'emissiveMapId', slot: 'emissive' },
+    ];
+
+    for (const { label, prop, slot } of textureSlots) {
+      body.appendChild(this._createTextureSlotRow(label, pm[prop], async (assetId) => {
+        pm[prop] = assetId;
+        if (this.assetManager && assetId) {
+          const url = await this.assetManager.getAssetUrl(assetId);
+          if (url) pm.applyTexture(slot, url, assetId);
+        }
+        this._emitChange();
+      }, () => {
+        pm.removeTexture(slot);
+        this._emitChange();
+        this.setEntity(this.entity);
+      }));
+    }
+
+    body.appendChild(this._createNumberRow('UV Repeat X', pm.uvRepeat?.x ?? 1, 0.1, 20, 0.1, (val) => {
+      pm.uvRepeat = { ...pm.uvRepeat, x: val };
+      pm.updateUVRepeat();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('UV Repeat Y', pm.uvRepeat?.y ?? 1, 0.1, 20, 0.1, (val) => {
+      pm.uvRepeat = { ...pm.uvRepeat, y: val };
+      pm.updateUVRepeat();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Normal Scale', pm.normalScale ?? 1, 0, 2, 0.05, (val) => {
+      pm.normalScale = val;
+      if (pm.mesh?.material?.normalMap) pm.mesh.material.normalScale.set(val, val);
       this._emitChange();
     }));
 
@@ -446,6 +552,69 @@ export class Inspector {
       mr.wireframe = val; if (mr.mesh) mr.mesh.material.wireframe = val; this._emitChange();
     }));
 
+    // Phase 12B: Emissive properties
+    body.appendChild(this._createColorRow('Emissive', mr.emissiveColor || '#000000', (val) => {
+      mr.emissiveColor = val;
+      if (mr.mesh?.material) {
+        mr.mesh.material.emissive.set(val);
+      }
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Emissive Int.', mr.emissiveIntensity || 0, 0, 5, 0.1, (val) => {
+      mr.emissiveIntensity = val;
+      if (mr.mesh?.material) {
+        mr.mesh.material.emissiveIntensity = val;
+      }
+      this._emitChange();
+    }));
+
+    // Phase 12B: Texture map slots
+    const textureSlots = [
+      { label: 'Diffuse Map', prop: 'diffuseMapId', slot: 'diffuse' },
+      { label: 'Normal Map', prop: 'normalMapId', slot: 'normal' },
+      { label: 'Roughness Map', prop: 'roughnessMapId', slot: 'roughness' },
+      { label: 'Metalness Map', prop: 'metalnessMapId', slot: 'metalness' },
+      { label: 'Emissive Map', prop: 'emissiveMapId', slot: 'emissive' },
+    ];
+
+    for (const { label, prop, slot } of textureSlots) {
+      body.appendChild(this._createTextureSlotRow(label, mr[prop], async (assetId) => {
+        mr[prop] = assetId;
+        if (this.assetManager && assetId) {
+          const url = await this.assetManager.getAssetUrl(assetId);
+          if (url) mr.applyTexture(slot, url, assetId);
+        }
+        this._emitChange();
+      }, () => {
+        mr.removeTexture(slot);
+        this._emitChange();
+        this.setEntity(this.entity); // re-render
+      }));
+    }
+
+    // UV Repeat
+    body.appendChild(this._createNumberRow('UV Repeat X', mr.uvRepeat?.x ?? 1, 0.1, 20, 0.1, (val) => {
+      mr.uvRepeat = { ...mr.uvRepeat, x: val };
+      mr.updateUVRepeat();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('UV Repeat Y', mr.uvRepeat?.y ?? 1, 0.1, 20, 0.1, (val) => {
+      mr.uvRepeat = { ...mr.uvRepeat, y: val };
+      mr.updateUVRepeat();
+      this._emitChange();
+    }));
+
+    // Normal Scale
+    body.appendChild(this._createNumberRow('Normal Scale', mr.normalScale ?? 1, 0, 2, 0.05, (val) => {
+      mr.normalScale = val;
+      if (mr.mesh?.material?.normalMap) {
+        mr.mesh.material.normalScale.set(val, val);
+      }
+      this._emitChange();
+    }));
+
     this.container.appendChild(section);
   }
 
@@ -460,7 +629,7 @@ export class Inspector {
 
     body.appendChild(this._createSelectRow('Type', light.lightType,
       ['directional', 'point', 'spot', 'ambient'],
-      (val) => { light.configure(val, { color: light.color, intensity: light.intensity }); this._emitChange(); }
+      (val) => { light.configure(val, { color: light.color, intensity: light.intensity }); this._emitChange(); this.refresh(); }
     ));
 
     body.appendChild(this._createColorRow('Color', light.color, (val) => {
@@ -470,6 +639,75 @@ export class Inspector {
     body.appendChild(this._createNumberRow('Intensity', light.intensity, 0, 10, 0.1, (val) => {
       light.intensity = val; if (light.light) light.light.intensity = val; this._emitChange();
     }));
+
+    // Shadow settings (not for ambient lights)
+    if (light.lightType !== 'ambient') {
+      const shadowSep = document.createElement('div');
+      shadowSep.style.cssText = 'height:1px;background:var(--border);margin:8px 0;';
+      body.appendChild(shadowSep);
+
+      const shadowLabel = document.createElement('div');
+      shadowLabel.style.cssText = 'font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;';
+      shadowLabel.textContent = '🌑 Shadow';
+      body.appendChild(shadowLabel);
+
+      body.appendChild(this._createCheckboxRow('Cast Shadow', light.castShadow, (val) => {
+        light.castShadow = val;
+        light.updateShadow();
+        this._emitChange();
+        this.refresh();
+      }));
+
+      if (light.castShadow) {
+        body.appendChild(this._createSelectRow('Map Size', String(light.shadowMapSize),
+          ['512', '1024', '2048', '4096'],
+          (val) => {
+            light.shadowMapSize = parseInt(val);
+            light.updateShadow();
+            this._emitChange();
+          }
+        ));
+
+        body.appendChild(this._createNumberRow('Bias', light.shadowBias, -0.01, 0.01, 0.0001, (val) => {
+          light.shadowBias = val;
+          light.updateShadow();
+          this._emitChange();
+        }));
+
+        body.appendChild(this._createNumberRow('Normal Bias', light.shadowNormalBias, 0, 0.1, 0.005, (val) => {
+          light.shadowNormalBias = val;
+          light.updateShadow();
+          this._emitChange();
+        }));
+
+        body.appendChild(this._createNumberRow('Softness', light.shadowRadius, 0, 10, 0.5, (val) => {
+          light.shadowRadius = val;
+          light.updateShadow();
+          this._emitChange();
+        }));
+
+        // Shadow camera frustum (directional-specific)
+        if (light.lightType === 'directional') {
+          body.appendChild(this._createNumberRow('Shadow Size', light.shadowSize, 1, 100, 1, (val) => {
+            light.shadowSize = val;
+            light.updateShadow();
+            this._emitChange();
+          }));
+        }
+
+        body.appendChild(this._createNumberRow('Shadow Near', light.shadowNear, 0.01, 10, 0.1, (val) => {
+          light.shadowNear = val;
+          light.updateShadow();
+          this._emitChange();
+        }));
+
+        body.appendChild(this._createNumberRow('Shadow Far', light.shadowFar, 1, 500, 1, (val) => {
+          light.shadowFar = val;
+          light.updateShadow();
+          this._emitChange();
+        }));
+      }
+    }
 
     this.container.appendChild(section);
   }
@@ -993,6 +1231,62 @@ export class Inspector {
   }
 
   // =============================================
+  // AnimationPlayer (Phase 10B)
+  // =============================================
+
+  _renderAnimationPlayer() {
+    const ap = this.entity.getComponent('AnimationPlayer');
+    const section = this._createSection('🎞️', 'Animation Player', 'AnimationPlayer');
+    const body = section.querySelector('.component-body');
+
+    // Clip selector
+    if (ap.clips.length > 0) {
+      const clipNames = ap.clips.map(c => c.name);
+      body.appendChild(this._createSelectRow('Clip', clipNames[ap.currentClipIndex] || '', clipNames, (val) => {
+        const idx = ap.clips.findIndex(c => c.name === val);
+        if (idx >= 0) ap.currentClipIndex = idx;
+        this._emitChange();
+      }));
+    }
+
+    // Speed
+    body.appendChild(this._createNumberRow('Speed', ap.speed, 0, 10, 0.1, (val) => {
+      ap.speed = val;
+      this._emitChange();
+    }));
+
+    // Auto-play
+    body.appendChild(this._createCheckboxRow('Auto Play', ap.autoPlay, (val) => {
+      ap.autoPlay = val;
+      this._emitChange();
+    }));
+
+    // Loop (for current clip)
+    const clip = ap.currentClip;
+    if (clip) {
+      body.appendChild(this._createCheckboxRow('Loop', clip.loop, (val) => {
+        clip.loop = val;
+        this._emitChange();
+      }));
+
+      // Duration info
+      const duration = clip.duration;
+      const info = document.createElement('div');
+      info.style.cssText = 'font-size:10px; color:var(--text-muted); margin-top:4px;';
+      info.textContent = `Duration: ${duration.toFixed(2)}s · Tracks: ${clip.tracks.length}`;
+      body.appendChild(info);
+    }
+
+    // Hint
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size:10px;color:var(--text-muted);margin-top:6px;text-align:center;';
+    hint.textContent = 'Click "Timeline" tab below to edit keyframes';
+    body.appendChild(hint);
+
+    this.container.appendChild(section);
+  }
+
+  // =============================================
   // Post-Processing (scene-level settings)
   // =============================================
 
@@ -1145,6 +1439,123 @@ export class Inspector {
   }
 
   // =============================================
+  // InstancedMeshRenderer (Phase 12B: GPU Instancing)
+  // =============================================
+
+  _renderInstancedMeshRenderer() {
+    const ir = this.entity.getComponent('InstancedMeshRenderer');
+    const section = this._createSection('🧱', 'Instanced Mesh', 'InstancedMeshRenderer');
+    const body = section.querySelector('.component-body');
+
+    // Shape
+    const shapes = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane'];
+    body.appendChild(this._createSelectRow('Shape', ir.geometryType, shapes, (val) => {
+      ir.geometryType = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Count
+    body.appendChild(this._createNumberRow('Count', ir.count, 1, 10000, 1, (val) => {
+      ir.count = Math.round(val);
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Pattern
+    const patterns = Object.keys(DISTRIBUTION_PATTERNS);
+    body.appendChild(this._createSelectRow('Pattern', ir.pattern, patterns, (val) => {
+      ir.pattern = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Spread
+    body.appendChild(this._createNumberRow('Spread', ir.spread, 0.5, 100, 0.5, (val) => {
+      ir.spread = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Scale
+    body.appendChild(this._createNumberRow('Base Scale', ir.baseScale, 0.01, 10, 0.05, (val) => {
+      ir.baseScale = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Scale Var.', ir.scaleVariation, 0, 1, 0.05, (val) => {
+      ir.scaleVariation = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Separator
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:var(--border);margin:8px 0;';
+    body.appendChild(sep);
+
+    // Material
+    body.appendChild(this._createColorRow('Color', ir.color, (val) => {
+      ir.color = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Color Var.', ir.colorVariation, 0, 1, 0.05, (val) => {
+      ir.colorVariation = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Metalness', ir.metalness, 0, 1, 0.05, (val) => {
+      ir.metalness = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createNumberRow('Roughness', ir.roughness, 0, 1, 0.05, (val) => {
+      ir.roughness = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Options
+    body.appendChild(this._createCheckboxRow('Random Rot', ir.randomRotation, (val) => {
+      ir.randomRotation = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createCheckboxRow('Cast Shadow', ir.castShadow, (val) => {
+      ir.castShadow = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    body.appendChild(this._createCheckboxRow('Receive Shadow', ir.receiveShadow, (val) => {
+      ir.receiveShadow = val;
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Seed
+    body.appendChild(this._createNumberRow('Seed', ir.seed, 0, 9999, 1, (val) => {
+      ir.seed = Math.round(val);
+      ir.rebuild();
+      this._emitChange();
+    }));
+
+    // Instance count info
+    const info = document.createElement('div');
+    info.style.cssText = 'font-size:10px; color:var(--text-muted); margin-top:4px; text-align:center;';
+    info.textContent = `${ir.count} instances · ${ir.geometryType} · ${DISTRIBUTION_PATTERNS[ir.pattern] || ir.pattern}`;
+    body.appendChild(info);
+
+    this.container.appendChild(section);
+  }
+
+  // =============================================
   // Add Component Button
   // =============================================
 
@@ -1176,6 +1587,8 @@ export class Inspector {
       border-radius: var(--radius-md);
       padding: 4px 0;
       min-width: 180px;
+      max-height: 300px;
+      overflow-y: auto;
       z-index: 100;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     `;
@@ -1205,8 +1618,14 @@ export class Inspector {
     if (!this.entity.hasComponent('Animator')) {
       items.push({ label: '🎬 Animator', comp: 'Animator' });
     }
+    if (!this.entity.hasComponent('AnimationPlayer')) {
+      items.push({ label: '🎞️ AnimationPlayer', comp: 'AnimationPlayer' });
+    }
     if (!this.entity.hasComponent('Camera')) {
       items.push({ label: '🎥 Camera', comp: 'Camera' });
+    }
+    if (!this.entity.hasComponent('InstancedMeshRenderer')) {
+      items.push({ label: '🧱 InstancedMesh', comp: 'InstancedMeshRenderer' });
     }
 
     if (items.length === 0) {
@@ -1229,10 +1648,18 @@ export class Inspector {
       menu.appendChild(row);
     }
 
-    // Position menu
+    // Position menu (open above the button to avoid clipping at bottom)
     const rect = anchor.getBoundingClientRect();
+    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom;
     menu.style.left = rect.left + 'px';
-    menu.style.top = (rect.bottom + 4) + 'px';
+    if (spaceAbove > spaceBelow) {
+      // Open upward
+      menu.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+    } else {
+      // Open downward
+      menu.style.top = (rect.bottom + 4) + 'px';
+    }
     document.body.appendChild(menu);
 
     // Close on outside click
@@ -1309,10 +1736,24 @@ export class Inspector {
         this._emitChange();
         this.refresh();
       });
+    } else if (type === 'AnimationPlayer') {
+      import('../../engine/components/AnimationPlayer.js').then(({ AnimationPlayer }) => {
+        const ap = new AnimationPlayer();
+        this.entity.addComponent(ap);
+        this._emitChange();
+        this.refresh();
+      });
     } else if (type === 'Camera') {
       import('../../engine/components/Camera.js').then(({ Camera }) => {
         const cam = new Camera();
         this.entity.addComponent(cam);
+        this._emitChange();
+        this.refresh();
+      });
+    } else if (type === 'InstancedMeshRenderer') {
+      import('../../engine/components/InstancedMeshRenderer.js').then(({ InstancedMeshRenderer }) => {
+        const ir = new InstancedMeshRenderer();
+        this.entity.addComponent(ir);
         this._emitChange();
         this.refresh();
       });
@@ -1420,6 +1861,121 @@ export class Inspector {
 
     row.appendChild(value);
     return row;
+  }
+  // =============================================
+  // Phase 12B: Environment Settings
+  // =============================================
+
+  _renderEnvironment() {
+    const env = this.environment;
+    const section = this._createSection('🌍', 'Environment', null, false);
+    const body = section.querySelector('.component-body');
+
+    // Background type
+    body.appendChild(this._createSelectRow('Background', env.backgroundType,
+      ['solid', 'gradient', 'sky'],
+      (val) => {
+        env.backgroundType = val;
+        env.apply();
+        this._emitChange();
+        this.setEntity(this.entity); // refresh to show relevant fields
+      }
+    ));
+
+    // Solid color
+    if (env.backgroundType === 'solid') {
+      body.appendChild(this._createColorRow('Color', env.backgroundColor, (val) => {
+        env.backgroundColor = val;
+        env.apply();
+        this._emitChange();
+      }));
+    }
+
+    // Gradient
+    if (env.backgroundType === 'gradient') {
+      body.appendChild(this._createColorRow('Top Color', env.gradientTop, (val) => {
+        env.gradientTop = val;
+        env.apply();
+        this._emitChange();
+      }));
+      body.appendChild(this._createColorRow('Bottom Color', env.gradientBottom, (val) => {
+        env.gradientBottom = val;
+        env.apply();
+        this._emitChange();
+      }));
+    }
+
+    // Sky preset
+    if (env.backgroundType === 'sky') {
+      const { EnvironmentSystem } = env.constructor.SKY_PRESETS
+        ? { EnvironmentSystem: env.constructor }
+        : { EnvironmentSystem: { SKY_PRESETS: {} } };
+
+      body.appendChild(this._createSelectRow('Preset', env.skyPreset,
+        Object.keys(env.constructor.SKY_PRESETS || {}),
+        (val) => {
+          env.skyPreset = val;
+          env.apply();
+          this._emitChange();
+        }
+      ));
+    }
+
+    // --- Fog section ---
+    const fogLabel = document.createElement('div');
+    fogLabel.style.cssText = `
+      font-size: 10px; color: var(--text-muted); padding: 8px 0 4px;
+      border-top: 1px solid var(--border-light); margin-top: 6px;
+      font-weight: 600; letter-spacing: 0.5px;
+    `;
+    fogLabel.textContent = '🌫️ FOG';
+    body.appendChild(fogLabel);
+
+    body.appendChild(this._createCheckboxRow('Enabled', env.fogEnabled, (val) => {
+      env.fogEnabled = val;
+      env.apply();
+      this._emitChange();
+      this.setEntity(this.entity);
+    }));
+
+    if (env.fogEnabled) {
+      body.appendChild(this._createSelectRow('Type', env.fogType,
+        ['linear', 'exponential'],
+        (val) => {
+          env.fogType = val;
+          env.apply();
+          this._emitChange();
+          this.setEntity(this.entity);
+        }
+      ));
+
+      body.appendChild(this._createColorRow('Color', env.fogColor, (val) => {
+        env.fogColor = val;
+        env.apply();
+        this._emitChange();
+      }));
+
+      if (env.fogType === 'linear') {
+        body.appendChild(this._createNumberRow('Near', env.fogNear, 0, 500, 1, (val) => {
+          env.fogNear = val;
+          env.apply();
+          this._emitChange();
+        }));
+        body.appendChild(this._createNumberRow('Far', env.fogFar, 1, 1000, 5, (val) => {
+          env.fogFar = val;
+          env.apply();
+          this._emitChange();
+        }));
+      } else {
+        body.appendChild(this._createNumberRow('Density', env.fogDensity, 0, 0.5, 0.005, (val) => {
+          env.fogDensity = val;
+          env.apply();
+          this._emitChange();
+        }));
+      }
+    }
+
+    this.container.appendChild(section);
   }
 
   _createNumberRow(label, currentValue, min, max, step, onChange) {
@@ -1727,6 +2283,141 @@ export class Inspector {
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+  }
+
+  // =============================================
+  // Phase 12B: Texture Slot Row
+  // =============================================
+
+  /**
+   * Create a texture slot row with drop zone and preview
+   * @param {string} label
+   * @param {string|null} currentAssetId
+   * @param {Function} onAssign - (assetId) => void
+   * @param {Function} onRemove - () => void
+   */
+  _createTextureSlotRow(label, currentAssetId, onAssign, onRemove) {
+    const row = document.createElement('div');
+    row.className = 'prop-row';
+    row.style.alignItems = 'flex-start';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'prop-label';
+    lbl.textContent = label;
+    lbl.style.fontSize = '10px';
+    row.appendChild(lbl);
+
+    const value = document.createElement('div');
+    value.className = 'prop-value';
+    value.style.flexDirection = 'column';
+    value.style.gap = '4px';
+
+    // Drop zone / preview
+    const dropZone = document.createElement('div');
+    dropZone.style.cssText = `
+      width: 100%; height: 48px;
+      border: 1px dashed var(--border-light);
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: var(--text-muted);
+      cursor: pointer; overflow: hidden; position: relative;
+      transition: border-color 0.2s, background 0.2s;
+    `;
+
+    if (currentAssetId && this.assetManager) {
+      // Show preview
+      const meta = this.assetManager.getAssetMeta(currentAssetId);
+      if (meta) {
+        this.assetManager.getAssetUrl(currentAssetId).then(url => {
+          if (url) {
+            dropZone.style.border = '1px solid var(--accent)';
+            dropZone.style.padding = '0';
+            dropZone.innerHTML = `
+              <img src="${url}" style="height:100%;width:auto;object-fit:contain;border-radius:var(--radius-sm);">
+              <span style="position:absolute;bottom:2px;right:4px;font-size:9px;color:var(--text-muted);
+                           background:rgba(0,0,0,0.6);padding:1px 4px;border-radius:3px;">${meta.name}</span>
+            `;
+          }
+        });
+      } else {
+        dropZone.textContent = `ID: ${currentAssetId.substring(0, 8)}...`;
+      }
+    } else {
+      dropZone.textContent = '🖼️ Drop texture here';
+    }
+
+    // Drag over
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--accent)';
+      dropZone.style.background = 'rgba(99,102,241,0.1)';
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.style.borderColor = 'var(--border-light)';
+      dropZone.style.background = '';
+    });
+
+    // Drop (accept asset IDs from Project Browser)
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--border-light)';
+      dropZone.style.background = '';
+
+      const assetId = e.dataTransfer.getData('text/asset-id');
+      if (assetId) {
+        // Verify it's an image asset
+        if (this.assetManager) {
+          const meta = this.assetManager.getAssetMeta(assetId);
+          if (meta && meta.type === 'image') {
+            onAssign(assetId);
+            this.setEntity(this.entity); // refresh
+          }
+        }
+      }
+    });
+
+    // Click to select from asset list
+    dropZone.addEventListener('click', () => {
+      if (!this.assetManager) return;
+      const imageAssets = this.assetManager.assets.filter(a => a.type === 'image');
+      if (imageAssets.length === 0) {
+        alert('No image assets imported. Import PNG/JPG files first.');
+        return;
+      }
+
+      // Show simple select dialog
+      const names = imageAssets.map(a => a.name);
+      const selected = prompt(
+        `Select texture for "${label}":\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nEnter number (or 0 to cancel):`,
+        '1'
+      );
+      if (selected && parseInt(selected) > 0 && parseInt(selected) <= imageAssets.length) {
+        const asset = imageAssets[parseInt(selected) - 1];
+        onAssign(asset.id);
+        this.setEntity(this.entity); // refresh
+      }
+    });
+
+    value.appendChild(dropZone);
+
+    // Remove button (when texture is assigned)
+    if (currentAssetId) {
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕ Remove';
+      removeBtn.style.cssText = `
+        font-size: 9px; padding: 2px 6px; border: none;
+        background: var(--danger); color: white; border-radius: var(--radius-sm);
+        cursor: pointer; align-self: flex-end;
+      `;
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onRemove();
+      });
+      value.appendChild(removeBtn);
+    }
+
+    row.appendChild(value);
+    return row;
   }
 
   _emitChange() {

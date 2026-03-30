@@ -12,7 +12,9 @@ import { UICanvas } from '../engine/components/UICanvas.js';
 import { GLBModel } from '../engine/components/GLBModel.js';
 import { ParticleEmitter } from '../engine/components/ParticleEmitter.js';
 import { Animator } from '../engine/components/Animator.js';
+import { AnimationPlayer } from '../engine/components/AnimationPlayer.js';
 import { Camera } from '../engine/components/Camera.js';
+import { InstancedMeshRenderer } from '../engine/components/InstancedMeshRenderer.js';
 import { ProceduralMesh, MODIFIER_TYPES } from '../modeling/ProceduralMesh.js';
 
 /**
@@ -40,6 +42,11 @@ export class SceneSerializer {
       data.postProcess = options.postProcess.serialize();
     }
 
+    // Environment settings (sky, fog, background)
+    if (options.environment) {
+      data.environment = options.environment.serialize();
+    }
+
     // Traverse all entities (skip root)
     const traverse = (entity) => {
       if (entity === scene.root) {
@@ -52,6 +59,8 @@ export class SceneSerializer {
       const entityData = {
         id: entity.id,
         name: entity.name,
+        tag: entity.tag || '',
+        active: entity.active,
         parentId: entity.parent ? entity.parent.id : null,
         components: {},
       };
@@ -72,17 +81,10 @@ export class SceneSerializer {
         entityData.components.ProceduralMesh = pm.serialize();
       }
 
-      // Serialize MeshRenderer (legacy)
+      // Serialize MeshRenderer (includes Phase 12B texture maps)
       if (entity.hasComponent('MeshRenderer')) {
         const mr = entity.getComponent('MeshRenderer');
-        entityData.components.MeshRenderer = {
-          geometryType: mr.geometryType,
-          geometryParams: { ...mr.geometryParams },
-          color: mr.color,
-          metalness: mr.metalness,
-          roughness: mr.roughness,
-          wireframe: mr.wireframe,
-        };
+        entityData.components.MeshRenderer = mr.serialize();
       }
 
       // Serialize Light
@@ -137,8 +139,14 @@ export class SceneSerializer {
       if (entity.hasComponent('Animator')) {
         entityData.components.Animator = entity.getComponent('Animator').serialize();
       }
+      if (entity.hasComponent('AnimationPlayer')) {
+        entityData.components.AnimationPlayer = entity.getComponent('AnimationPlayer').serialize();
+      }
       if (entity.hasComponent('Camera')) {
         entityData.components.Camera = entity.getComponent('Camera').serialize();
+      }
+      if (entity.hasComponent('InstancedMeshRenderer')) {
+        entityData.components.InstancedMeshRenderer = entity.getComponent('InstancedMeshRenderer').serialize();
       }
 
       data.entities.push(entityData);
@@ -172,6 +180,8 @@ export class SceneSerializer {
     for (const entityData of data.entities) {
       const entity = scene.createEntity(entityData.name);
       ensureEntityIdAbove(entity.id);
+      entity.tag = entityData.tag || '';
+      if (entityData.active === false) entity.setActive(false);
       entityMap.set(entityData.id, entity);
     }
 
@@ -199,17 +209,11 @@ export class SceneSerializer {
         pm.deserialize(comps.ProceduralMesh);
       }
 
-      // MeshRenderer (legacy)
+      // MeshRenderer (includes Phase 12B textures)
       if (comps.MeshRenderer && !comps.ProceduralMesh) {
         const mr = new MeshRenderer();
         entity.addComponent(mr);
-        const mrd = comps.MeshRenderer;
-        mr.configure(mrd.geometryType, mrd.geometryParams, {
-          color: mrd.color,
-          metalness: mrd.metalness,
-          roughness: mrd.roughness,
-          wireframe: mrd.wireframe,
-        });
+        mr.deserialize(comps.MeshRenderer);
       }
 
       // Light
@@ -287,11 +291,25 @@ export class SceneSerializer {
         entity.addComponent(anim);
       }
 
+      // AnimationPlayer
+      if (comps.AnimationPlayer) {
+        const ap = new AnimationPlayer();
+        ap.deserialize(comps.AnimationPlayer);
+        entity.addComponent(ap);
+      }
+
       // Camera
       if (comps.Camera) {
         const cam = new Camera();
         cam.deserialize(comps.Camera);
         entity.addComponent(cam);
+      }
+
+      // InstancedMeshRenderer
+      if (comps.InstancedMeshRenderer) {
+        const ir = new InstancedMeshRenderer();
+        ir.deserialize(comps.InstancedMeshRenderer);
+        entity.addComponent(ir);
       }
     }
 
@@ -317,6 +335,11 @@ export class SceneSerializer {
       scene._postProcessData = data.postProcess;
     }
 
+    // Store environment settings for the editor to apply
+    if (data.environment) {
+      scene._environmentData = data.environment;
+    }
+
     return scene;
   }
 
@@ -329,6 +352,8 @@ export class SceneSerializer {
     const entityData = {
       id: entity.id,
       name: entity.name,
+      tag: entity.tag || '',
+      active: entity.active,
       parentId: entity.parent ? entity.parent.id : null,
       components: {},
     };
@@ -346,12 +371,7 @@ export class SceneSerializer {
     }
     if (entity.hasComponent('MeshRenderer')) {
       const mr = entity.getComponent('MeshRenderer');
-      entityData.components.MeshRenderer = {
-        geometryType: mr.geometryType,
-        geometryParams: { ...mr.geometryParams },
-        color: mr.color, metalness: mr.metalness,
-        roughness: mr.roughness, wireframe: mr.wireframe,
-      };
+      entityData.components.MeshRenderer = mr.serialize();
     }
     if (entity.hasComponent('Light')) {
       entityData.components.Light = entity.getComponent('Light').serialize();
@@ -383,8 +403,14 @@ export class SceneSerializer {
     if (entity.hasComponent('Animator')) {
       entityData.components.Animator = entity.getComponent('Animator').serialize();
     }
+    if (entity.hasComponent('AnimationPlayer')) {
+      entityData.components.AnimationPlayer = entity.getComponent('AnimationPlayer').serialize();
+    }
     if (entity.hasComponent('Camera')) {
       entityData.components.Camera = entity.getComponent('Camera').serialize();
+    }
+    if (entity.hasComponent('InstancedMeshRenderer')) {
+      entityData.components.InstancedMeshRenderer = entity.getComponent('InstancedMeshRenderer').serialize();
     }
 
     return entityData;
@@ -400,6 +426,8 @@ export class SceneSerializer {
   static deserializeEntity(entityData, scene, parent) {
     const entity = scene.createEntity(entityData.name, parent);
     ensureEntityIdAbove(entity.id);
+    entity.tag = entityData.tag || '';
+    if (entityData.active === false) entity.setActive(false);
     const comps = entityData.components;
 
     if (comps.Transform) {
@@ -474,10 +502,20 @@ export class SceneSerializer {
       anim.deserialize(comps.Animator);
       entity.addComponent(anim);
     }
+    if (comps.AnimationPlayer) {
+      const ap = new AnimationPlayer();
+      ap.deserialize(comps.AnimationPlayer);
+      entity.addComponent(ap);
+    }
     if (comps.Camera) {
       const cam = new Camera();
       cam.deserialize(comps.Camera);
       entity.addComponent(cam);
+    }
+    if (comps.InstancedMeshRenderer) {
+      const ir = new InstancedMeshRenderer();
+      ir.deserialize(comps.InstancedMeshRenderer);
+      entity.addComponent(ir);
     }
 
     return entity;

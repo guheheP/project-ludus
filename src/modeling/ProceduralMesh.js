@@ -139,6 +139,18 @@ export class ProceduralMesh extends Component {
   /** @type {boolean} */
   wireframe = false;
 
+  // Phase 12B: Texture Maps
+  /** @type {string|null} */ diffuseMapId = null;
+  /** @type {string|null} */ normalMapId = null;
+  /** @type {string|null} */ roughnessMapId = null;
+  /** @type {string|null} */ metalnessMapId = null;
+  /** @type {string|null} */ emissiveMapId = null;
+  /** @type {number} */ emissiveIntensity = 0;
+  /** @type {string} */ emissiveColor = '#000000';
+  /** @type {number} */ normalScale = 1.0;
+  /** @type {{x: number, y: number}} */ uvRepeat = { x: 1, y: 1 };
+  /** @type {Map<string, THREE.Texture>} */ _textureCache = new Map();
+
   /**
    * Configure shape and rebuild
    * @param {string} shapeType
@@ -261,6 +273,8 @@ export class ProceduralMesh extends Component {
       roughness: this.roughness,
       wireframe: this.wireframe,
       flatShading: false,
+      emissive: new THREE.Color(this.emissiveColor),
+      emissiveIntensity: this.emissiveIntensity,
     });
 
     // Create mesh
@@ -281,6 +295,77 @@ export class ProceduralMesh extends Component {
       this.mesh.geometry.dispose();
       this.mesh.material.dispose();
       this.mesh = null;
+    }
+    for (const [, tex] of this._textureCache) tex.dispose();
+    this._textureCache.clear();
+  }
+
+  // Phase 12B: Texture methods (shared pattern with MeshRenderer)
+  applyTexture(slot, url, assetId) {
+    if (!this.mesh || !this.mesh.material) return;
+    if (this._textureCache.has(assetId)) {
+      this._setMaterialTexture(slot, this._textureCache.get(assetId));
+      return;
+    }
+    const loader = new THREE.TextureLoader();
+    loader.load(url, (texture) => {
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(this.uvRepeat.x, this.uvRepeat.y);
+      texture.colorSpace = (slot === 'diffuse' || slot === 'emissive')
+        ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
+      texture.needsUpdate = true;
+      this._textureCache.set(assetId, texture);
+      this._setMaterialTexture(slot, texture);
+    });
+  }
+
+  _setMaterialTexture(slot, texture) {
+    if (!this.mesh?.material) return;
+    const mat = this.mesh.material;
+    switch (slot) {
+      case 'diffuse': mat.map = texture; break;
+      case 'normal': mat.normalMap = texture; mat.normalScale = new THREE.Vector2(this.normalScale, this.normalScale); break;
+      case 'roughness': mat.roughnessMap = texture; break;
+      case 'metalness': mat.metalnessMap = texture; break;
+      case 'emissive': mat.emissiveMap = texture; mat.emissive = new THREE.Color(this.emissiveColor || '#ffffff'); mat.emissiveIntensity = this.emissiveIntensity || 1; break;
+    }
+    mat.needsUpdate = true;
+  }
+
+  removeTexture(slot) {
+    if (!this.mesh?.material) return;
+    const mat = this.mesh.material;
+    switch (slot) {
+      case 'diffuse': this.diffuseMapId = null; if (mat.map) { mat.map.dispose(); mat.map = null; } break;
+      case 'normal': this.normalMapId = null; if (mat.normalMap) { mat.normalMap.dispose(); mat.normalMap = null; } break;
+      case 'roughness': this.roughnessMapId = null; if (mat.roughnessMap) { mat.roughnessMap.dispose(); mat.roughnessMap = null; } break;
+      case 'metalness': this.metalnessMapId = null; if (mat.metalnessMap) { mat.metalnessMap.dispose(); mat.metalnessMap = null; } break;
+      case 'emissive': this.emissiveMapId = null; if (mat.emissiveMap) { mat.emissiveMap.dispose(); mat.emissiveMap = null; } break;
+    }
+    mat.needsUpdate = true;
+  }
+
+  updateUVRepeat() {
+    for (const [, tex] of this._textureCache) {
+      tex.repeat.set(this.uvRepeat.x, this.uvRepeat.y);
+      tex.needsUpdate = true;
+    }
+  }
+
+  async loadAllTextures(assetManager) {
+    const slots = [
+      { id: this.diffuseMapId, slot: 'diffuse' },
+      { id: this.normalMapId, slot: 'normal' },
+      { id: this.roughnessMapId, slot: 'roughness' },
+      { id: this.metalnessMapId, slot: 'metalness' },
+      { id: this.emissiveMapId, slot: 'emissive' },
+    ];
+    for (const { id, slot } of slots) {
+      if (id) {
+        const url = await assetManager.getAssetUrl(id);
+        if (url) this.applyTexture(slot, url, id);
+      }
     }
   }
 
@@ -341,6 +426,16 @@ export class ProceduralMesh extends Component {
       metalness: this.metalness,
       roughness: this.roughness,
       wireframe: this.wireframe,
+      // Phase 12B
+      diffuseMapId: this.diffuseMapId,
+      normalMapId: this.normalMapId,
+      roughnessMapId: this.roughnessMapId,
+      metalnessMapId: this.metalnessMapId,
+      emissiveMapId: this.emissiveMapId,
+      emissiveIntensity: this.emissiveIntensity,
+      emissiveColor: this.emissiveColor,
+      normalScale: this.normalScale,
+      uvRepeat: { ...this.uvRepeat },
     };
   }
 
@@ -369,5 +464,15 @@ export class ProceduralMesh extends Component {
       roughness: data.roughness,
       wireframe: data.wireframe,
     });
+    // Phase 12B: Restore texture IDs
+    if (data.diffuseMapId) this.diffuseMapId = data.diffuseMapId;
+    if (data.normalMapId) this.normalMapId = data.normalMapId;
+    if (data.roughnessMapId) this.roughnessMapId = data.roughnessMapId;
+    if (data.metalnessMapId) this.metalnessMapId = data.metalnessMapId;
+    if (data.emissiveMapId) this.emissiveMapId = data.emissiveMapId;
+    if (data.emissiveIntensity !== undefined) this.emissiveIntensity = data.emissiveIntensity;
+    if (data.emissiveColor) this.emissiveColor = data.emissiveColor;
+    if (data.normalScale !== undefined) this.normalScale = data.normalScale;
+    if (data.uvRepeat) this.uvRepeat = { ...data.uvRepeat };
   }
 }

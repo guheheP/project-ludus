@@ -3,6 +3,7 @@ import { Component } from '../Component.js';
 
 /**
  * MeshRenderer Component — Renders a mesh with a material
+ * Phase 12B: Added texture map support (diffuse, normal, roughness, metalness, emissive)
  */
 
 // Geometry factory
@@ -62,6 +63,41 @@ export class MeshRenderer extends Component {
   /** @type {number} */
   roughness = 0.6;
 
+  // =============================================
+  // Phase 12B: Texture Map IDs (asset IDs)
+  // =============================================
+
+  /** @type {string|null} Diffuse/albedo texture asset ID */
+  diffuseMapId = null;
+
+  /** @type {string|null} Normal map asset ID */
+  normalMapId = null;
+
+  /** @type {string|null} Roughness map asset ID */
+  roughnessMapId = null;
+
+  /** @type {string|null} Metalness map asset ID */
+  metalnessMapId = null;
+
+  /** @type {string|null} Emissive map asset ID */
+  emissiveMapId = null;
+
+  /** @type {number} Emissive intensity */
+  emissiveIntensity = 0;
+
+  /** @type {string} Emissive color */
+  emissiveColor = '#000000';
+
+  /** @type {number} Normal map intensity (0-2) */
+  normalScale = 1.0;
+
+  /** @type {{x: number, y: number}} UV repeat */
+  uvRepeat = { x: 1, y: 1 };
+
+  // Cached textures (not serialized)
+  /** @type {Map<string, THREE.Texture>} */
+  _textureCache = new Map();
+
   /**
    * @param {string} geometryType
    * @param {object} geometryParams
@@ -91,6 +127,11 @@ export class MeshRenderer extends Component {
       this.mesh.material.dispose();
       this.mesh = null;
     }
+    // Dispose cached textures
+    for (const [, tex] of this._textureCache) {
+      tex.dispose();
+    }
+    this._textureCache.clear();
   }
 
   _buildMesh() {
@@ -120,13 +161,159 @@ export class MeshRenderer extends Component {
   }
 
   _createMaterial() {
-    return new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(this.color),
       wireframe: this.wireframe,
       metalness: this.metalness,
       roughness: this.roughness,
+      emissive: new THREE.Color(this.emissiveColor),
+      emissiveIntensity: this.emissiveIntensity,
+    });
+
+    // Apply normal scale
+    if (this.normalScale !== 1.0) {
+      mat.normalScale = new THREE.Vector2(this.normalScale, this.normalScale);
+    }
+
+    return mat;
+  }
+
+  // =============================================
+  // Phase 12B: Texture Loading
+  // =============================================
+
+  /**
+   * Load and apply a texture from an asset URL
+   * @param {'diffuse'|'normal'|'roughness'|'metalness'|'emissive'} slot
+   * @param {string} url - Object URL or data URL
+   * @param {string} assetId - Asset ID for caching
+   */
+  applyTexture(slot, url, assetId) {
+    if (!this.mesh || !this.mesh.material) return;
+
+    // Check cache
+    if (this._textureCache.has(assetId)) {
+      this._setMaterialTexture(slot, this._textureCache.get(assetId));
+      return;
+    }
+
+    const loader = new THREE.TextureLoader();
+    loader.load(url, (texture) => {
+      // Configure texture
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(this.uvRepeat.x, this.uvRepeat.y);
+      texture.colorSpace = (slot === 'diffuse' || slot === 'emissive')
+        ? THREE.SRGBColorSpace
+        : THREE.LinearSRGBColorSpace;
+      texture.needsUpdate = true;
+
+      this._textureCache.set(assetId, texture);
+      this._setMaterialTexture(slot, texture);
     });
   }
+
+  /**
+   * Set a texture on the material
+   * @param {string} slot
+   * @param {THREE.Texture} texture
+   */
+  _setMaterialTexture(slot, texture) {
+    if (!this.mesh?.material) return;
+    const mat = this.mesh.material;
+
+    switch (slot) {
+      case 'diffuse':
+        mat.map = texture;
+        break;
+      case 'normal':
+        mat.normalMap = texture;
+        mat.normalScale = new THREE.Vector2(this.normalScale, this.normalScale);
+        break;
+      case 'roughness':
+        mat.roughnessMap = texture;
+        break;
+      case 'metalness':
+        mat.metalnessMap = texture;
+        break;
+      case 'emissive':
+        mat.emissiveMap = texture;
+        mat.emissive = new THREE.Color(this.emissiveColor || '#ffffff');
+        mat.emissiveIntensity = this.emissiveIntensity || 1;
+        break;
+    }
+    mat.needsUpdate = true;
+  }
+
+  /**
+   * Remove a texture from a slot
+   * @param {'diffuse'|'normal'|'roughness'|'metalness'|'emissive'} slot
+   */
+  removeTexture(slot) {
+    if (!this.mesh?.material) return;
+    const mat = this.mesh.material;
+
+    switch (slot) {
+      case 'diffuse':
+        this.diffuseMapId = null;
+        if (mat.map) { mat.map.dispose(); mat.map = null; }
+        break;
+      case 'normal':
+        this.normalMapId = null;
+        if (mat.normalMap) { mat.normalMap.dispose(); mat.normalMap = null; }
+        break;
+      case 'roughness':
+        this.roughnessMapId = null;
+        if (mat.roughnessMap) { mat.roughnessMap.dispose(); mat.roughnessMap = null; }
+        break;
+      case 'metalness':
+        this.metalnessMapId = null;
+        if (mat.metalnessMap) { mat.metalnessMap.dispose(); mat.metalnessMap = null; }
+        break;
+      case 'emissive':
+        this.emissiveMapId = null;
+        if (mat.emissiveMap) { mat.emissiveMap.dispose(); mat.emissiveMap = null; }
+        break;
+    }
+    mat.needsUpdate = true;
+  }
+
+  /**
+   * Update UV repeat on all loaded textures
+   */
+  updateUVRepeat() {
+    for (const [, tex] of this._textureCache) {
+      tex.repeat.set(this.uvRepeat.x, this.uvRepeat.y);
+      tex.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Reload all textures from asset manager
+   * @param {import('../AssetManager.js').AssetManager} assetManager
+   */
+  async loadAllTextures(assetManager) {
+    const slots = [
+      { id: this.diffuseMapId, slot: 'diffuse' },
+      { id: this.normalMapId, slot: 'normal' },
+      { id: this.roughnessMapId, slot: 'roughness' },
+      { id: this.metalnessMapId, slot: 'metalness' },
+      { id: this.emissiveMapId, slot: 'emissive' },
+    ];
+
+    for (const { id, slot } of slots) {
+      if (id) {
+        const url = await assetManager.getAssetUrl(id);
+        if (url) {
+          this.applyTexture(slot, url, id);
+        }
+      }
+    }
+  }
+
+  // =============================================
+  // Setters
+  // =============================================
 
   /**
    * Update material color
@@ -150,6 +337,10 @@ export class MeshRenderer extends Component {
     this._buildMesh();
   }
 
+  // =============================================
+  // Serialization
+  // =============================================
+
   serialize() {
     return {
       ...super.serialize(),
@@ -159,11 +350,33 @@ export class MeshRenderer extends Component {
       wireframe: this.wireframe,
       metalness: this.metalness,
       roughness: this.roughness,
+      // Phase 12B: Texture map IDs
+      diffuseMapId: this.diffuseMapId,
+      normalMapId: this.normalMapId,
+      roughnessMapId: this.roughnessMapId,
+      metalnessMapId: this.metalnessMapId,
+      emissiveMapId: this.emissiveMapId,
+      emissiveIntensity: this.emissiveIntensity,
+      emissiveColor: this.emissiveColor,
+      normalScale: this.normalScale,
+      uvRepeat: { ...this.uvRepeat },
     };
   }
 
   deserialize(data) {
     super.deserialize(data);
+
+    // Phase 12B: Texture properties
+    if (data.diffuseMapId) this.diffuseMapId = data.diffuseMapId;
+    if (data.normalMapId) this.normalMapId = data.normalMapId;
+    if (data.roughnessMapId) this.roughnessMapId = data.roughnessMapId;
+    if (data.metalnessMapId) this.metalnessMapId = data.metalnessMapId;
+    if (data.emissiveMapId) this.emissiveMapId = data.emissiveMapId;
+    if (data.emissiveIntensity !== undefined) this.emissiveIntensity = data.emissiveIntensity;
+    if (data.emissiveColor) this.emissiveColor = data.emissiveColor;
+    if (data.normalScale !== undefined) this.normalScale = data.normalScale;
+    if (data.uvRepeat) this.uvRepeat = { ...data.uvRepeat };
+
     this.configure(data.geometryType, data.geometryParams, {
       color: data.color,
       wireframe: data.wireframe,

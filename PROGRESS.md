@@ -1,6 +1,6 @@
 # Project Ludus — 開発進捗レポート
 
-> 最終更新: 2026-03-29
+> 最終更新: 2026-03-30
 
 ## 📋 プロジェクト概要
 
@@ -149,6 +149,47 @@ Three.js + Rapier 物理エンジンの上に構築されています。
 - **シリアライズ対応**: SceneSerializer に postProcess 設定の保存/復元を追加
 - **エクスポート対応**: Exporter ランタイムに PostProcessManager を統合
 
+### Phase 11: シーン管理の拡張
+- **マルチシーン対応**: `ProjectManager` に複数シーン管理 (listScenes/loadScene/saveScene/deleteScene)
+- **ランタイムシーン遷移**: `scene.loadScene('level2')` でスクリプト/物理/UI/Tween を安全にリセットし新シーン読込
+- **プレハブシステム**: エンティティをプレハブとして保存、ランタイムで `scene.instantiatePrefab()` でスポーン
+- **プレハブレジストリ**: Play開始時にプロジェクトから全プレハブを自動ロード
+
+### Phase 12B: レンダリング強化
+- **テクスチャマッピング**: ディフューズ、ノーマル、ラフネス、メタルネス、エミッシブマップ対応
+  - MeshRenderer / ProceduralMesh 両対応、Inspector にドラッグ&ドロップ対応UI
+- **環境システム (EnvironmentSystem)**: 背景・フォグの統合管理
+  - 3 モード: Solid / Gradient / Sky (カスタムGLSLシェーダー sky dome)
+  - 4 プリセット: Day / Sunset / Night / Overcast
+  - Fog: Linear / Exponential + カラー・距離設定
+  - Scene ルート選択時に Inspector で編集可能
+
+### Phase 15A-C: ゲームランタイム基盤
+- **Camera コンポーネント**: FOV, near/far, perspective/orthographic
+  - スクリプト API: `camera.setPosition()`, `camera.lookAt()`, `camera.follow()`, `camera.setFOV()`
+- **エンティティ動的生成/削除**: `scene.instantiate()`, `scene.destroy()`, `scene.destroyDelayed()`
+- **コンポーネントアクセス**: `entity.getComponent()` で他エンティティのコンポーネント取得
+- **Transform ヘルパー**: `forward`, `right`, `up`, `lookAt`, `translate`
+- **マテリアル API**: `renderer.setColor()`, `renderer.setOpacity()`, `renderer.setVisible()`
+- **ゲームストア**: `game.set/get/has/delete/clear` — スクリプト間の値共有
+- **レイキャスト API**: `physics.raycast()`, `physics.raycastAll()`, `physics.setGravity()`
+- **マウスデルタ & ポインターロック**: FPS/TPS 視点操作対応
+- **タグ検索**: `scene.findByTag()`, `scene.findAllByTag()`
+- **エンティティ有効/無効**: `entity.setActive()` — 子の個別状態を尊重
+
+---
+
+## 🔧 バグ修正 (2026-03-30)
+
+| # | 優先度 | ファイル | 修正内容 |
+|---|--------|---------|----------|
+| 1 | 🔴 高 | ScriptRuntime.js | `_createPhysicsAPI` の `this.physicsWorld` → `this.physics` (Raycast API が常に null を返す) |
+| 2 | 🔴 高 | SceneSerializer.js (×3箇所) | MeshRenderer テクスチャシリアライズの統一 (`mr.serialize()`/`mr.deserialize()` に変更) |
+| 3 | 🟡 中 | ScriptRuntime.js | `stop()` で `_onCollisionFn` のリセット漏れ修正 |
+| 4 | 🟡 中 | Entity.js | `setActive(true)` 時に子エンティティの個別 active 状態を尊重するよう変更 |
+| 5 | 🟢 低 | SceneView.js | `PCFSoftShadowMap` → `PCFShadowMap` (Three.js r183 非推奨警告解消) |
+| 6 | 🟢 低 | Exporter.js | エクスポートランタイムの同様のシャドウマップ修正 |
+
 ---
 
 ## 🏗️ プロジェクト構造
@@ -179,11 +220,18 @@ project-ludus/
     │   │   ├── Collider.js       # 衝突形状
     │   │   ├── AudioListener.js  # オーディオリスナー
     │   │   ├── AudioSource.js    # オーディオソース
-    │   │   └── UICanvas.js       # UIキャンバス
+    │   │   ├── UICanvas.js       # UIキャンバス
+    │   │   ├── GLBModel.js       # GLB/GLTFモデル
+    │   │   ├── ParticleEmitter.js # パーティクル
+    │   │   ├── Animator.js       # コードなしアニメーション
+    │   │   └── Camera.js         # カメラ
     │   └── systems/
     │       ├── PhysicsWorld.js    # Rapier 物理ワールド
     │       ├── AudioSystem.js    # オーディオ管理
-    │       └── UISystem.js       # UI オーバーレイ管理
+    │       ├── UISystem.js       # UI オーバーレイ管理
+    │       ├── TweenManager.js   # Tween アニメーション
+    │       ├── PostProcessManager.js # ポストプロセス
+    │       └── EnvironmentSystem.js  # 環境 (Sky, Fog)
     ├── editor/                   # エディタ機能
     │   ├── Editor.js             # メインエディタコントローラ
     │   ├── ContextMenu.js        # 右クリックメニュー
@@ -224,5 +272,15 @@ project-ludus/
 
 ## 🔧 既知の課題・改善点
 
+### 解決済み (2026-03-30)
+- ~~Physics Raycast API が常に null を返す~~ → `this.physicsWorld` → `this.physics` に修正
+- ~~MeshRenderer テクスチャがシーン保存時に失われる~~ → `mr.serialize()` に統一
+- ~~setActive(true) が子エンティティの個別状態を無視~~ → 子の active フラグを尊重
+- ~~PCFSoftShadowMap 非推奨警告~~ → `PCFShadowMap` に修正
+
+### 残存
 1. **Ground の物理**: Plane ジオメトリの回転(-90° X)と Collider サイズの整合性に要注意
 2. **AudioSystem**: 実際のオーディオ再生はブラウザの autoplay policy による制限あり
+3. **Prefab インスタンス化**: `scene.instantiatePrefab()` が実エンティティ参照を返さない（非同期問題）
+4. **ファイルサイズ**: Editor.js (1,740行) / Inspector.js (74.7KB) の将来的なリファクタリング推奨
+5. **AI IDE ドキュメント**: `.ludus/api-reference.md` に Phase 15 API の反映が未完了

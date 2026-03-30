@@ -60,100 +60,79 @@
 
 ---
 
-### Phase 15B: スクリプト API 拡充 — 重要 🟠
+### Phase 15B: スクリプト API 拡充 — ✅ 完了
 
-> ゲームオブジェクトの制御性を大幅に向上させる。
-> 15A と合わせて実装することで、アクション/RPG 等のジャンルに対応可能になる。
+> ゲームオブジェクトの制御性を大幅に向上。
 
-#### 15B-1. エンティティ有効/無効切り替え (setActive)
-- [ ] **スクリプト API**:
-  - `entity.setActive(bool)` — エンティティの有効/無効を切り替え
-  - `entity.isActive` — 現在の有効状態を取得
-- [ ] **エンジン対応**: `active = false` 時に以下をスキップ
-  - 描画 (object3D.visible = false)
-  - 物理シミュレーション
-  - スクリプト update() 呼び出し
-  - パーティクル更新
-- [ ] **子エンティティ連動**: 親を無効化したら子も再帰的に無効化
+#### 15B-1. エンティティ有効/無効切り替え (setActive) ✅
+- [x] `entity.setActive(bool)` — 再帰的に子エンティティも無効化
+- [x] `entity.isActive` / `entity.tag` — 状態・タグの読み書き
+- [x] inactive 時に描画・物理・スクリプト update をスキップ
 
-#### 15B-2. タグによるエンティティ検索
-- [ ] **スクリプト API**:
-  - `scene.findByTag(tag)` — タグに一致する最初のエンティティを返す
-  - `scene.findAllByTag(tag)` — タグに一致する全エンティティを返す
-- [ ] **Inspector UI**: エンティティ名の下にタグ編集フィールドを追加
-  - プリセットタグ候補: Player, Enemy, Item, Obstacle, Trigger, UI
-- [ ] **シリアライズ**: 既に `Entity.tag` は存在しシリアライズ済み（UI と API の追加のみ）
+#### 15B-2. タグによるエンティティ検索 ✅
+- [x] `scene.findByTag(tag)` / `scene.findAllByTag(tag)`
+- [x] Inspector UI: エンティティ名の下にタグ編集フィールド (プリセット候補付き)
+- [x] SceneSerializer: tag と active の保存/読み込み (全4メソッド対応)
 
-#### 15B-3. マテリアル/見た目のランタイム変更
-- [ ] **スクリプト API**: `renderer` オブジェクトをスクリプトコンテキストに追加
-  - `renderer.setColor(hex)` — マテリアルカラーの動的変更
-  - `renderer.setOpacity(value)` — 透明度の設定 (0.0〜1.0)
-  - `renderer.setVisible(bool)` — メッシュの表示/非表示
-  - `renderer.setEmissive(hex, intensity)` — 発光色設定
-- [ ] **他エンティティ対応**: `_wrapEntity()` にも renderer プロキシを含める
+#### 15B-3. マテリアル/見た目のランタイム変更 ✅ (15A で先行実装)
+- [x] `renderer.setColor/setOpacity/setVisible/setEmissive`
+- [x] `_wrapEntity()` にも renderer プロキシ含む
 
-#### 15B-4. Transform ヘルパーメソッド
-- [ ] **スクリプト API**: 既存の `transform` オブジェクトを拡張
-  - `transform.setRotation(x, y, z)` — 度数法での回転設定
-  - `transform.setRotationDeg(x, y, z)` — 明示的な度数法エイリアス
-  - `transform.lookAt(x, y, z)` — 指定座標への注視
-  - `transform.forward` — 前方ベクトル (読み取り専用)
-  - `transform.right` — 右方向ベクトル (読み取り専用)
-  - `transform.up` — 上方向ベクトル (読み取り専用)
-  - `transform.translate(x, y, z)` — ローカル座標での移動
+#### 15B-4. Transform ヘルパーメソッド ✅ (15A で先行実装)
+- [x] `setRotation/setRotationDeg/lookAt/translate/forward/right/up`
 
-#### 15B-5. ゲームステート管理 (グローバルストア)
-- [ ] **`game` API**: 全スクリプトで共有されるキーバリューストア
-  - `game.set(key, value)` — 値の設定
-  - `game.get(key, defaultValue)` — 値の取得
-  - `game.has(key)` — キーの存在確認
-  - `game.delete(key)` — 値の削除
-  - `game.clear()` — 全データクリア
-- [ ] **用途例**: HP、スコア、ゲーム状態、フラグ管理
-- [ ] **Play/Stop 連携**: Stop 時に自動クリア
+#### 15B-5. ゲームステート管理 ✅ (15A で先行実装)
+- [x] `game.set/get/has/delete/clear` — Play/Stop 時自動クリア
 
 ---
 
-### Phase 15C: 高度なゲームプレイ機能 — 推奨 🟡
+### Phase 15C: 高度なゲームプレイ機能 — ✅ 完了
 
-> FPS/TPS 等のジャンルに対応し、ゲーム体験の品質を向上させる。
+> FPS/TPS 等のジャンルに対応する高度な API。
 
-#### 15C-1. レイキャスト API
-- [ ] **スクリプト API**: `physics` オブジェクトをスクリプトコンテキストに追加
-  - `physics.raycast(origin, direction, maxDistance)` — 物理レイキャスト
-    - 戻り値: `{ hit: bool, entity, point, normal, distance }`
-  - `physics.raycastAll(origin, direction, maxDistance)` — 全ヒット結果
-- [ ] **Rapier 統合**: `PhysicsWorld` に raycast メソッドを追加
-- [ ] **用途例**: 射撃判定、地面検出、視線判定、インタラクション
+#### 15C-1. レイキャスト API ✅
+- [x] `physics.raycast(origin, direction, maxDistance)` → `{ hit, entity, point, normal, distance }`
+- [x] `physics.raycastAll(origin, direction, maxDistance)` → 全ヒット結果
+- [x] `physics.setGravity(x, y, z)` / `physics.gravity`
+- [x] Rapier 統合: PhysicsWorld に raycast/raycastAll/intersectionsWithRay
 
-#### 15C-2. マウスデルタ＆ポインターロック
-- [ ] **InputManager 拡張**:
-  - `input.mouseDelta` — `{dx, dy}` フレーム間のマウス移動量
-  - `input.lockCursor()` — Pointer Lock API でカーソルをロック
-  - `input.unlockCursor()` — ロック解除
-  - `input.isCursorLocked` — ロック状態の確認
-- [ ] **Play モード連携**: Stop 時にポインターロックを自動解除
-- [ ] **用途例**: FPS/TPS の視点操作、エディタ内での回転操作
+#### 15C-2. マウスデルタ＆ポインターロック ✅ (15A で先行実装)
+- [x] `input.mouseDelta` / `input.lockCursor()` / `input.unlockCursor()` / `input.isCursorLocked`
+- [x] dispose 時にポインターロック自動解除
 
 ---
 
-### Phase 10B: タイムラインエディタ
-- **AnimationClip + AnimationPlayer**: キーフレームベースの完全なアニメーション
-- **タイムラインエディタ**: GUI でキーフレームを打つパネル
-- **アニメーションブレンド**
+### Phase 10B: タイムラインエディタ — ✅ 完了
+- [x] **AnimationClip データモデル**: Keyframe (time, value, easing) + AnimationTrack (property path) + AnimationClip
+- [x] **AnimationPlayer コンポーネント**: クリップ再生エンジン (play/stop/pause, speed, loop)
+- [x] **タイムラインエディタ**: GUIでキーフレームを打つパネル (ルーラー、ダイヤモンド、プレイヘッド)
+- [x] **13種のアニメーション可能プロパティ**: Transform(9) + Material(2) + Light(1) + Camera(1)
+- [x] **全エディタ統合**: Inspector, Hierarchy, Serializer, Exporter 対応
 
-### Phase 11: シーン管理の拡張
-- **複数シーン**: シーン切り替え機能
-- **プレハブシステム**: エンティティテンプレートの保存・再利用
-  - 15A-2 (Instantiate) と連携: `scene.instantiatePrefab(name)` で瞬時にスポーン
+### Phase 11: シーン管理の拡張 — ✅ 完了
+- [x] **複数シーン**: `ProjectManager.listScenes/loadScene(name)/saveScene(data, name)/deleteScene(name)`
+- [x] **シーン遷移 (ランタイム)**: `scene.loadScene('level2')` でプレイ中にシーン切替
+  - スクリプト/物理/UI/Tween を停止 → 新シーン読込 → 再起動
+- [x] **プレハブシステム**:
+  - `ProjectManager.savePrefab/loadPrefab/listPrefabs/deletePrefab`
+  - コンテキストメニューに「Save as Prefab 📦」(要プロジェクト)
+  - `scene.instantiatePrefab(name, { position, rotation, scale })` でランタイムスポーン
+  - Play開始時にプロジェクトから全プレハブをレジストリにロード
 
 ### ~~Phase 12: レンダリング強化~~ ✅ 完了 (12A ポストプロセス)
 
-### Phase 12B: レンダリング強化
-- **シャドウ改善**: カスケードシャドウマップ
-- **環境マップ**: HDRI スカイボックス / 反射プローブ
-- **テクスチャマッピング**: ディフューズ、ノーマル、ラフネスマップ
-- **GPUインスタンシング**: 大量オブジェクトの効率的レンダリング
+### Phase 12B: レンダリング強化 — ✅ 完了
+- [x] **テクスチャマッピング** ✅ 完了: ディフューズ、ノーマル、ラフネス、メタルネス、エミッシブマップ
+  - MeshRenderer / ProceduralMesh 両対応、UV Repeat、Normal Scale
+  - Inspector にドラッグ&ドロップ対応テクスチャスロット UI
+  - AssetManager 連携、シリアライズ対応
+- [x] **環境マップ / スカイボックス** ✅ 完了: EnvironmentSystem
+  - 3 モード: Solid / Gradient / Sky (シェーダーベース sky dome)
+  - 4 プリセット: Day / Sunset / Night / Overcast
+  - Fog: Linear / Exponential + カラー・距離設定
+  - Scene ルートエンティティ選択時に Inspector で編集, シリアライズ対応
+- [x] **シャドウ改善** ✅ 完了: PCFSoftShadowMap、シャドウbias/normalBias/radius/mapSize/frustum制御
+- [x] **GPUインスタンシング** ✅ 完了: InstancedMeshRenderer (6形状, 4パターン, シードPRNG)
 
 ### Phase 13: 2Dゲームサポート
 - **2D モード**: Orthographic カメラ、2Dビュー切り替え
@@ -176,19 +155,19 @@
 
 | 順序 | Phase | 内容 | 効果 |
 |------|-------|------|------|
-| 🔴 1 | **15A-1** | Camera コンポーネント | 全ジャンルのカメラ制御 |
-| 🔴 2 | **15A-2** | Instantiate / Destroy | 弾、敵、エフェクトの動的生成 |
-| 🔴 3 | **15A-3** | 他エンティティのコンポーネントアクセス | エンティティ間の相互作用 |
-| 🟠 4 | **15B-1** | setActive (有効/無効) | オブジェクトの出現/消失 |
-| 🟠 5 | **15B-2** | タグ検索 | エンティティのグループ操作 |
-| 🟠 6 | **15B-3** | マテリアル変更 API | 見た目の動的変更 |
-| 🟠 7 | **15B-4** | Transform ヘルパー | キャラクター制御の簡易化 |
-| 🟠 8 | **15B-5** | グローバルストア | スクリプト間の値共有 |
-| 🟡 9 | **15C-1** | レイキャスト API | 射撃判定、地面検出 |
-| 🟡 10 | **15C-2** | マウスデルタ＆ポインターロック | FPS/TPS 視点操作 |
-| ⬜ 11 | **10B** | タイムラインエディタ | キーフレームアニメーション |
-| ⬜ 12 | **11** | シーン管理＆プレハブ | 複数シーン、テンプレート |
-| ⬜ 13 | **12B** | レンダリング強化 | シャドウ、HDRI、テクスチャ |
+| ✅ 1 | **15A-1** | Camera コンポーネント | ✅ 完了 |
+| ✅ 2 | **15A-2** | Instantiate / Destroy | ✅ 完了 |
+| ✅ 3 | **15A-3** | 他エンティティのコンポーネントアクセス | ✅ 完了 |
+| ✅ 4 | **15B-1** | setActive (有効/無効) | ✅ 完了 |
+| ✅ 5 | **15B-2** | タグ検索 | ✅ 完了 |
+| ✅ 6 | **15B-3** | マテリアル変更 API | ✅ 完了 |
+| ✅ 7 | **15B-4** | Transform ヘルパー | ✅ 完了 |
+| ✅ 8 | **15B-5** | グローバルストア | ✅ 完了 |
+| ✅ 9 | **15C-1** | レイキャスト API | ✅ 完了 |
+| ✅ 10 | **15C-2** | マウスデルタ＆ポインターロック | ✅ 完了 |
+| ✅ 11 | **10B** | タイムラインエディタ | ✅ 完了 |
+| ✅ 12 | **11** | シーン管理＆プレハブ | ✅ 完了 |
+| ✅ 13 | **12B** | レンダリング強化 | ✅ 完了 (テクスチャ+環境+シャドウ+インスタンシング) |
 | ⬜ 14 | **13** | 2Dゲームサポート | スプライト、タイルマップ |
 | ⬜ 15 | **14** | ネットワーキング | マルチプレイヤー |
 
@@ -198,6 +177,11 @@
 
 ### 完了
 - [x] Inspector での数値ドラッグ操作の精度改善
+- [x] 🔴 Physics Raycast API の `this.physicsWorld` → `this.physics` 修正 (2026-03-30)
+- [x] 🔴 MeshRenderer テクスチャシリアライズの統一 (2026-03-30)
+- [x] 🟡 `_onCollisionFn` リセット漏れ修正 (2026-03-30)
+- [x] 🟡 `setActive(true)` 子エンティティ状態尊重 (2026-03-30)
+- [x] 🟢 PCFSoftShadowMap 非推奨警告解消 (2026-03-30)
 
 ### 中期
 - [ ] マテリアルエディタの拡充（テクスチャスロット追加）

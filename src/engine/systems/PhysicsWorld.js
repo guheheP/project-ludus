@@ -234,6 +234,7 @@ export class PhysicsWorld {
   _syncBodies() {
     for (const [, data] of this.bodyMap) {
       const { rigidBody, entity } = data;
+      if (!entity.active) continue;
       const rb = entity.getComponent('RigidBody');
       if (!rb || rb.bodyType === 'static') continue;
 
@@ -282,6 +283,80 @@ export class PhysicsWorld {
       else if (event.entity2 === entity) others.push(event.entity1);
     }
     return others;
+  }
+
+  /**
+   * Cast a ray and return the first hit
+   * @param {{x:number,y:number,z:number}} origin
+   * @param {{x:number,y:number,z:number}} direction — must be normalized
+   * @param {number} maxDistance
+   * @returns {{hit:boolean, entity:object|null, point:{x:number,y:number,z:number}|null, normal:{x:number,y:number,z:number}|null, distance:number}|null}
+   */
+  raycast(origin, direction, maxDistance = 100) {
+    if (!this.world) return { hit: false, entity: null, point: null, normal: null, distance: 0 };
+
+    const ray = new RAPIER.Ray(origin, direction);
+    const hit = this.world.castRay(ray, maxDistance, true);
+
+    if (hit) {
+      const hitCollider = hit.collider;
+      const distance = hit.timeOfImpact;
+      const point = {
+        x: origin.x + direction.x * distance,
+        y: origin.y + direction.y * distance,
+        z: origin.z + direction.z * distance,
+      };
+      const normal = hit.normal ? { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z } : null;
+
+      // Find entity
+      let hitEntity = null;
+      for (const [, data] of this.bodyMap) {
+        if (data.collider.handle === hitCollider.handle) {
+          hitEntity = data.entity;
+          break;
+        }
+      }
+
+      return { hit: true, entity: hitEntity, point, normal, distance };
+    }
+
+    return { hit: false, entity: null, point: null, normal: null, distance: 0 };
+  }
+
+  /**
+   * Cast a ray and return all hits
+   * @param {{x:number,y:number,z:number}} origin
+   * @param {{x:number,y:number,z:number}} direction
+   * @param {number} maxDistance
+   * @returns {Array<{entity:object|null, point:{x:number,y:number,z:number}, distance:number}>}
+   */
+  raycastAll(origin, direction, maxDistance = 100) {
+    if (!this.world) return [];
+
+    const ray = new RAPIER.Ray(origin, direction);
+    const results = [];
+
+    this.world.intersectionsWithRay(ray, maxDistance, true, (hit) => {
+      const distance = hit.timeOfImpact;
+      const point = {
+        x: origin.x + direction.x * distance,
+        y: origin.y + direction.y * distance,
+        z: origin.z + direction.z * distance,
+      };
+
+      let hitEntity = null;
+      for (const [, data] of this.bodyMap) {
+        if (data.collider.handle === hit.collider.handle) {
+          hitEntity = data.entity;
+          break;
+        }
+      }
+
+      results.push({ entity: hitEntity, point, distance });
+      return true; // continue
+    });
+
+    return results.sort((a, b) => a.distance - b.distance);
   }
 
   /**
