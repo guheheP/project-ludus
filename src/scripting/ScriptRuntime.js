@@ -1,5 +1,17 @@
+import * as THREE from 'three';
+import { Transform } from '../engine/components/Transform.js';
+import { ProceduralMesh } from '../modeling/ProceduralMesh.js';
+import { RigidBody } from '../engine/components/RigidBody.js';
+import { Collider } from '../engine/components/Collider.js';
+
 /**
  * ScriptRuntime — Compiles and executes user scripts in a sandboxed context
+ *
+ * Phase 15A additions:
+ *  - camera API (15A-1)
+ *  - scene.instantiate / scene.destroy (15A-2)
+ *  - Enhanced _wrapEntity with getComponent + API proxies (15A-3)
+ *  - game global store (15B-5 — included early as it's tiny)
  */
 export class ScriptRuntime {
   /** @type {import('../engine/Scene.js').Scene} */
@@ -35,6 +47,18 @@ export class ScriptRuntime {
   /** @type {boolean} */
   isRunning = false;
 
+  /** @type {Map<string, any>} Global game store shared across scripts */
+  _gameStore = new Map();
+
+  /** @type {import('../engine/components/Camera.js').Camera|null} */
+  _activeCameraComponent = null;
+
+  /** @type {THREE.Camera|null} The resolved three.js camera for Play mode */
+  activeCamera = null;
+
+  /** @type {Array<{entity: object, delay: number}>} Pending delayed destroys */
+  _pendingDestroys = [];
+
   constructor(scene, input, physics = null, audioSystem = null, uiSystem = null, tweenManager = null) {
     this.scene = scene;
     this.input = input;
@@ -45,12 +69,34 @@ export class ScriptRuntime {
   }
 
   /**
+   * Resolve the active Camera component in the scene
+   */
+  _resolveCamera() {
+    this._activeCameraComponent = null;
+    this.activeCamera = null;
+
+    this.scene.entityMap.forEach((entity) => {
+      if (entity.hasComponent('Camera')) {
+        const cam = entity.getComponent('Camera');
+        if (cam.primary) {
+          this._activeCameraComponent = cam;
+        }
+      }
+    });
+  }
+
+  /**
    * Compile all Script components and call start()
    */
   start() {
     this.elapsed = 0;
     this.frame = 0;
     this.isRunning = true;
+    this._gameStore.clear();
+    this._pendingDestroys = [];
+
+    // Resolve camera
+    this._resolveCamera();
 
     // Compile and start all scripts
     this.scene.entityMap.forEach((entity) => {
@@ -72,6 +118,11 @@ export class ScriptRuntime {
 
     this.elapsed += dt;
     this.frame++;
+
+    // Update active camera transform
+    if (this._activeCameraComponent) {
+      this.activeCamera = this._activeCameraComponent.getCamera();
+    }
 
     this.scene.entityMap.forEach((entity) => {
       if (entity.hasComponent('Script')) {
@@ -100,7 +151,7 @@ export class ScriptRuntime {
         for (const other of others) {
           try {
             script._onCollisionFn.call(script._runtimeContext, {
-              entity: { name: other.name, id: other.id, object3D: other.object3D },
+              entity: this._wrapEntity(other),
             });
           } catch (err) {
             script._hasError = true;
@@ -113,6 +164,19 @@ export class ScriptRuntime {
       });
     }
 
+    // Process delayed destroys
+    for (let i = this._pendingDestroys.length - 1; i >= 0; i--) {
+      this._pendingDestroys[i].delay -= dt;
+      if (this._pendingDestroys[i].delay <= 0) {
+        const raw = this._pendingDestroys[i].entity;
+        const realEntity = this.scene.getEntityById(raw.id || raw);
+        if (realEntity) {
+          this._destroyEntity(realEntity);
+        }
+        this._pendingDestroys.splice(i, 1);
+      }
+    }
+
     // Clear per-frame input
     this.input.endFrame();
   }
@@ -122,6 +186,10 @@ export class ScriptRuntime {
    */
   stop() {
     this.isRunning = false;
+    this._gameStore.clear();
+    this._pendingDestroys = [];
+    this._activeCameraComponent = null;
+    this.activeCamera = null;
 
     this.scene.entityMap.forEach((entity) => {
       if (entity.hasComponent('Script')) {
@@ -156,14 +224,13 @@ export class ScriptRuntime {
         name: entity.name,
         id: entity.id,
         object3D: entity.object3D,
+        setActive(active) {
+          entity.active = active;
+          entity.object3D.visible = active;
+        },
+        get isActive() { return entity.active; },
       },
-      transform: transform ? {
-        get position() { return transform.position; },
-        get rotation() { return transform.rotation; },
-        get scale() { return transform.scale; },
-        setPosition(x, y, z) { transform.setPosition(x, y, z); },
-        setScale(x, y, z) { transform.setScale(x, y, z); },
-      } : null,
+      transform: transform ? this._createTransformProxy(transform) : null,
       scene: {
         name: this.scene.name,
         find: (name) => {
@@ -181,6 +248,29 @@ export class ScriptRuntime {
           });
           return results;
         },
+        findByTag: (tag) => {
+          for (const [, e] of this.scene.entityMap) {
+            if (e.tag === tag) return this._wrapEntity(e);
+          }
+          return null;
+        },
+        findAllByTag: (tag) => {
+          const results = [];
+          this.scene.entityMap.forEach((e) => {
+            if (e.tag === tag) results.push(this._wrapEntity(e));
+          });
+          return results;
+        },
+        // 15A-2: Instantiate
+        instantiate: (name, options = {}) => this._instantiateEntity(name, options),
+        // 15A-2: Destroy
+        destroy: (entityRef) => {
+          const realEntity = this.scene.getEntityById(entityRef.id || entityRef);
+          if (realEntity) this._destroyEntity(realEntity);
+        },
+        destroyDelayed: (entityRef, delay) => {
+          this._pendingDestroys.push({ entity: entityRef, delay });
+        },
       },
       input: {
         isKeyDown: (key) => this.input.isKeyDown(key),
@@ -189,6 +279,10 @@ export class ScriptRuntime {
         get mouse() { return self.input.mouse; },
         get mouseLeft() { return self.input.mouseLeft; },
         get mouseRight() { return self.input.mouseRight; },
+        get mouseDelta() { return self.input.mouseDelta || { dx: 0, dy: 0 }; },
+        lockCursor: () => { self.input.lockCursor?.(); },
+        unlockCursor: () => { self.input.unlockCursor?.(); },
+        get isCursorLocked() { return self.input.isCursorLocked || false; },
       },
       time: {
         dt: 0,
@@ -197,7 +291,9 @@ export class ScriptRuntime {
       },
       // Math utilities
       Math: Math,
-      THREE: null, // Will be set after import
+      THREE: THREE,
+      // Camera API (15A-1)
+      camera: this._createCameraAPI(),
       // RigidBody API (if entity has RigidBody component)
       rigidbody: this._createRigidbodyAPI(entity),
       // Audio API (if entity has AudioSource component)
@@ -208,6 +304,10 @@ export class ScriptRuntime {
       tween: this._createTweenAPI(),
       // UI API (if UISystem is available)
       ui: this._createUIAPI(),
+      // Renderer/Material API (15B-3)
+      renderer: this._createRendererAPI(entity),
+      // Game global store (15B-5)
+      game: this._createGameAPI(),
       // Console redirect
       console: {
         log: (...args) => {
@@ -243,8 +343,9 @@ export class ScriptRuntime {
       `;
 
       const factory = new Function(
-        'entity', 'transform', 'scene', 'input', 'time', 'console', 'Math',
+        'entity', 'transform', 'scene', 'input', 'time', 'console', 'Math', 'THREE',
         'rigidbody', 'audio', 'particles', 'tween', 'ui',
+        'camera', 'renderer', 'game',
         wrappedCode
       );
 
@@ -257,11 +358,15 @@ export class ScriptRuntime {
         context.time,
         context.console,
         Math,
+        THREE,
         context.rigidbody,
         context.audio,
         context.particles,
         context.tween,
         context.ui,
+        context.camera,
+        context.renderer,
+        context.game,
       );
 
       script._startFn = result.start;
@@ -312,26 +417,239 @@ export class ScriptRuntime {
     }
   }
 
+  // =============================================
+  // 15A-1: Camera API
+  // =============================================
+
+  _createCameraAPI() {
+    const self = this;
+    return {
+      setPosition(x, y, z) {
+        if (self._activeCameraComponent?.entity) {
+          const t = self._activeCameraComponent.entity.getComponent('Transform');
+          if (t) t.setPosition(x, y, z);
+        }
+      },
+      lookAt(x, y, z) {
+        if (self._activeCameraComponent?.entity) {
+          self._activeCameraComponent.entity.object3D.lookAt(x, y, z);
+        }
+      },
+      follow(targetRef, offset = { x: 0, y: 5, z: -10 }) {
+        if (!self._activeCameraComponent?.entity) return;
+        // Resolve target entity
+        let targetObj3D = null;
+        if (targetRef && targetRef.object3D) {
+          targetObj3D = targetRef.object3D;
+        } else if (typeof targetRef === 'number') {
+          const e = self.scene.getEntityById(targetRef);
+          if (e) targetObj3D = e.object3D;
+        }
+        if (!targetObj3D) return;
+
+        const pos = new THREE.Vector3();
+        targetObj3D.getWorldPosition(pos);
+        const camT = self._activeCameraComponent.entity.getComponent('Transform');
+        if (camT) {
+          camT.setPosition(pos.x + offset.x, pos.y + offset.y, pos.z + offset.z);
+        }
+        self._activeCameraComponent.entity.object3D.lookAt(pos);
+      },
+      setFOV(deg) {
+        if (self._activeCameraComponent) {
+          self._activeCameraComponent.fov = deg;
+        }
+      },
+      get position() {
+        if (self._activeCameraComponent?.entity) {
+          const t = self._activeCameraComponent.entity.getComponent('Transform');
+          return t ? t.position : null;
+        }
+        return null;
+      },
+      get fov() {
+        return self._activeCameraComponent?.fov || 60;
+      },
+    };
+  }
+
+  // =============================================
+  // 15A-2: Instantiate / Destroy
+  // =============================================
+
+  /**
+   * Create a new entity at runtime
+   * @param {string} name
+   * @param {object} options - { position, rotation, scale, shape, color, physics }
+   * @returns {object} wrapped entity reference
+   */
+  _instantiateEntity(name, options = {}) {
+    const entity = this.scene.createEntity(name || 'Entity');
+    const transform = new Transform();
+    entity.addComponent(transform);
+
+    if (options.position) {
+      transform.setPosition(options.position.x || 0, options.position.y || 0, options.position.z || 0);
+    }
+    if (options.rotation) {
+      transform.setRotationDeg(options.rotation.x || 0, options.rotation.y || 0, options.rotation.z || 0);
+    }
+    if (options.scale) {
+      transform.setScale(options.scale.x || 1, options.scale.y || 1, options.scale.z || 1);
+    }
+
+    // Optionally add mesh
+    if (options.shape) {
+      try {
+        const pm = new ProceduralMesh();
+        entity.addComponent(pm);
+        pm.configure(options.shape, options.shapeParams || {}, {
+          color: options.color || '#ffffff',
+          metalness: options.metalness || 0.3,
+          roughness: options.roughness || 0.5,
+        });
+      } catch (_) {
+        // ProceduralMesh not available — skip
+      }
+    }
+
+    // Optionally add physics
+    if (options.physics) {
+      try {
+        const rb = new RigidBody();
+        rb.bodyType = options.physics.type || 'dynamic';
+        rb.mass = options.physics.mass || 1;
+        entity.addComponent(rb);
+
+        const col = new Collider();
+        col.shape = options.physics.collider || options.shape || 'box';
+        if (options.physics.size) col.size = options.physics.size;
+        if (options.physics.radius) col.radius = options.physics.radius;
+        entity.addComponent(col);
+
+        // Register with physics world
+        if (this.physics && this.physics.initialized) {
+          this.physics.addBody(entity);
+        }
+      } catch (_) {
+        // Physics not available — skip
+      }
+    }
+
+    return this._wrapEntity(entity);
+  }
+
+  /**
+   * Destroy an entity at runtime
+   * @param {import('../engine/Entity.js').Entity} entity
+   */
+  _destroyEntity(entity) {
+    if (!entity || entity === this.scene.root) return;
+
+    // Remove from physics
+    if (this.physics && this.physics.initialized) {
+      this.physics.removeBody?.(entity);
+    }
+
+    // Remove from scene
+    this.scene.removeEntity(entity);
+  }
+
+  // =============================================
+  // 15A-3: Enhanced _wrapEntity
+  // =============================================
+
   /**
    * Create a sandboxed wrapper for an entity — used by scene.find() / scene.findAll()
    * @param {import('../engine/Entity.js').Entity} entity
    * @returns {object}
    */
   _wrapEntity(entity) {
+    const self = this;
     const t = entity.getComponent('Transform');
     return {
       name: entity.name,
       id: entity.id,
+      tag: entity.tag,
       object3D: entity.object3D,
-      transform: t ? {
-        get position() { return t.position; },
-        get rotation() { return t.rotation; },
-        get scale() { return t.scale; },
-        setPosition(x, y, z) { t.setPosition(x, y, z); },
-        setScale(x, y, z) { t.setScale(x, y, z); },
-      } : null,
+      get isActive() { return entity.active; },
+      setActive(active) {
+        entity.active = active;
+        entity.object3D.visible = active;
+      },
+      transform: t ? self._createTransformProxy(t) : null,
+      /** 15A-3: Access any component by name */
+      getComponent(typeName) {
+        const comp = entity.getComponent(typeName);
+        if (!comp) return null;
+        // Provide API proxies for known component types
+        switch (typeName) {
+          case 'RigidBody': return self._createRigidbodyAPI(entity);
+          case 'ParticleEmitter': return self._createParticlesAPI(entity);
+          case 'Animator': return self._createAnimatorAPI(entity);
+          case 'AudioSource': return self._createAudioAPI(entity);
+          case 'Transform': return self._createTransformProxy(comp);
+          default: return comp;
+        }
+      },
+      get rigidbody() { return self._createRigidbodyAPI(entity); },
+      get particles() { return self._createParticlesAPI(entity); },
+      get animator() { return self._createAnimatorAPI(entity); },
+      get audio() { return self._createAudioAPI(entity); },
+      get renderer() { return self._createRendererAPI(entity); },
     };
   }
+
+  // =============================================
+  // Transform Proxy with helpers (15B-4)
+  // =============================================
+
+  _createTransformProxy(transform) {
+    const obj3D = transform.entity?.object3D;
+    return {
+      get position() { return transform.position; },
+      get rotation() { return transform.rotation; },
+      get scale() { return transform.scale; },
+      setPosition(x, y, z) { transform.setPosition(x, y, z); },
+      setScale(x, y, z) { transform.setScale(x, y, z); },
+      setRotation(x, y, z) {
+        const d = Math.PI / 180;
+        if (obj3D) obj3D.rotation.set(x * d, y * d, z * d);
+      },
+      setRotationDeg(x, y, z) {
+        const d = Math.PI / 180;
+        if (obj3D) obj3D.rotation.set(x * d, y * d, z * d);
+      },
+      lookAt(x, y, z) {
+        if (obj3D) obj3D.lookAt(x, y, z);
+      },
+      translate(x, y, z) {
+        if (obj3D) obj3D.translateX(x), obj3D.translateY(y), obj3D.translateZ(z);
+      },
+      get forward() {
+        if (!obj3D) return new THREE.Vector3(0, 0, -1);
+        const dir = new THREE.Vector3(0, 0, -1);
+        dir.applyQuaternion(obj3D.quaternion);
+        return dir;
+      },
+      get right() {
+        if (!obj3D) return new THREE.Vector3(1, 0, 0);
+        const dir = new THREE.Vector3(1, 0, 0);
+        dir.applyQuaternion(obj3D.quaternion);
+        return dir;
+      },
+      get up() {
+        if (!obj3D) return new THREE.Vector3(0, 1, 0);
+        const dir = new THREE.Vector3(0, 1, 0);
+        dir.applyQuaternion(obj3D.quaternion);
+        return dir;
+      },
+    };
+  }
+
+  // =============================================
+  // Component API Proxies
+  // =============================================
 
   /**
    * Create a rigidbody API proxy for scripts
@@ -416,6 +734,26 @@ export class ScriptRuntime {
   }
 
   /**
+   * Create an animator API proxy for scripts
+   * @param {import('../engine/Entity.js').Entity} entity
+   * @returns {object|null}
+   */
+  _createAnimatorAPI(entity) {
+    const anim = entity.getComponent('Animator');
+    if (!anim) return null;
+
+    return {
+      get playing() { return anim.playing; },
+      get type() { return anim.animationType; },
+      play: () => { anim.playing = true; },
+      stop: () => { anim.playing = false; },
+      setType: (type) => { anim.animationType = type; },
+      setSpeed: (speed) => { anim.speed = speed; },
+      reset: () => { anim.reset(); },
+    };
+  }
+
+  /**
    * Create a tween API proxy for scripts
    * @returns {object|null}
    */
@@ -452,4 +790,60 @@ export class ScriptRuntime {
       clearAll: () => sys.clearAll(),
     };
   }
+
+  // =============================================
+  // 15B-3: Renderer / Material API
+  // =============================================
+
+  _createRendererAPI(entity) {
+    return {
+      setColor(hex) {
+        const mesh = _findMesh(entity);
+        if (mesh?.material) mesh.material.color.set(hex);
+      },
+      setOpacity(value) {
+        const mesh = _findMesh(entity);
+        if (mesh?.material) {
+          mesh.material.transparent = value < 1;
+          mesh.material.opacity = value;
+        }
+      },
+      setVisible(visible) {
+        entity.object3D.visible = visible;
+      },
+      setEmissive(hex, intensity = 1) {
+        const mesh = _findMesh(entity);
+        if (mesh?.material?.emissive) {
+          mesh.material.emissive.set(hex);
+          mesh.material.emissiveIntensity = intensity;
+        }
+      },
+    };
+  }
+
+  // =============================================
+  // 15B-5: Game Global Store
+  // =============================================
+
+  _createGameAPI() {
+    const store = this._gameStore;
+    return {
+      set(key, value) { store.set(key, value); },
+      get(key, defaultValue) { return store.has(key) ? store.get(key) : defaultValue; },
+      has(key) { return store.has(key); },
+      delete(key) { return store.delete(key); },
+      clear() { store.clear(); },
+    };
+  }
+}
+
+// =============================================
+// Helper: Find the first mesh in an entity
+// =============================================
+function _findMesh(entity) {
+  let mesh = null;
+  entity.object3D.traverse((child) => {
+    if (!mesh && child.isMesh) mesh = child;
+  });
+  return mesh;
 }

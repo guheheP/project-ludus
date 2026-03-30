@@ -9,6 +9,7 @@ import { Collider } from '../engine/components/Collider.js';
 import { GLBModel } from '../engine/components/GLBModel.js';
 import { ParticleEmitter } from '../engine/components/ParticleEmitter.js';
 import { Animator } from '../engine/components/Animator.js';
+import { Camera } from '../engine/components/Camera.js';
 import { ProceduralMesh } from '../modeling/ProceduralMesh.js';
 import { TwistModifier } from '../modeling/modifiers/Twist.js';
 import { SceneView } from './panels/SceneView.js';
@@ -368,6 +369,11 @@ export class Editor {
         setTimeout(() => this._stop(), 0);
       };
       this.scriptRuntime.start();
+
+      // If a Camera entity exists, switch rendering to its camera
+      if (this.scriptRuntime.activeCamera) {
+        this.sceneView._gameCamera = this.scriptRuntime.activeCamera;
+      }
     } else if (this.mode === 'pause') {
       // Resume from pause
       if (this.scriptRuntime) this.scriptRuntime.isRunning = true;
@@ -388,6 +394,9 @@ export class Editor {
 
   _stop() {
     if (this.mode === 'edit') return;
+
+    // Restore editor camera
+    this.sceneView._gameCamera = null;
 
     // Stop scripts
     if (this.scriptRuntime) {
@@ -501,7 +510,13 @@ export class Editor {
       'cone': 'Cone', 'torus': 'Torus', 'plane': 'Plane', 'capsule': 'Capsule',
     };
 
-    if (type.includes('light')) {
+    if (type === 'camera') {
+      entity = this.scene.createEntity('Camera');
+      entity.addComponent(new Transform());
+      entity.getComponent('Transform').setPosition(0, 5, 10);
+      const cam = new Camera();
+      entity.addComponent(cam);
+    } else if (type.includes('light')) {
       const lightType = type.replace('-light', '');
       const lightNames = { 'directional': 'Directional Light', 'point': 'Point Light' };
       entity = this.scene.createEntity(lightNames[lightType] || 'Light');
@@ -724,6 +739,14 @@ export class Editor {
       entity.addComponent(anim);
     }
 
+    // Camera
+    if (src.hasComponent('Camera')) {
+      const srcCam = src.getComponent('Camera');
+      const cam = new Camera();
+      cam.deserialize(srcCam.serialize());
+      entity.addComponent(cam);
+    }
+
     this.hierarchy.refresh();
     this.selectEntity(entity);
     this._log('info', `Duplicated: ${src.name}`);
@@ -926,6 +949,8 @@ function update(dt) {
     items.push({ separator: true });
     items.push({ label: 'Add Dir Light', icon: '☀️', action: () => this._addEntity('directional-light') });
     items.push({ label: 'Add Point Light', icon: '💡', action: () => this._addEntity('point-light') });
+    items.push({ label: 'Add Camera', icon: '🎥', action: () => this._addEntity('camera') });
+    items.push({ label: 'Add Particles', icon: '✨', action: () => this._addEntity('particle') });
 
     if (entity && entity !== this.scene.root) {
       items.push({ separator: true });
@@ -1365,6 +1390,10 @@ function update(dt) {
         }
         if (this.scriptRuntime) {
           this.scriptRuntime.update(dt);
+          // Sync game camera from ScriptRuntime
+          if (this.scriptRuntime.activeCamera) {
+            this.sceneView._gameCamera = this.scriptRuntime.activeCamera;
+          }
         }
       }
 

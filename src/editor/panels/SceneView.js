@@ -13,6 +13,9 @@ export class SceneView {
   /** @type {THREE.PerspectiveCamera} */
   camera;
 
+  /** @type {THREE.Camera|null} Override camera used during Play mode */
+  _gameCamera = null;
+
   /** @type {OrbitControls} */
   orbitControls;
 
@@ -290,6 +293,15 @@ export class SceneView {
   }
 
   /**
+   * Get the camera currently used for rendering.
+   * Returns the game camera during Play, or the editor camera otherwise.
+   * @returns {THREE.Camera}
+   */
+  get _activeCamera() {
+    return this._gameCamera || this.camera;
+  }
+
+  /**
    * Render one frame.
    * Uses a 2-pass approach to prevent Bloom from making the gizmo glow:
    *  Pass 1: main scene with post-processing (gizmo hidden)
@@ -299,9 +311,24 @@ export class SceneView {
     if (!this.scene) return;
     this.orbitControls.update();
 
+    const cam = this._activeCamera;
     const gizmoHelper = this.transformControls.getHelper();
 
+    // If using game camera, sync its aspect ratio
+    if (this._gameCamera) {
+      const rect = this.container.getBoundingClientRect();
+      if (this._gameCamera.isPerspectiveCamera) {
+        this._gameCamera.aspect = rect.width / rect.height;
+        this._gameCamera.updateProjectionMatrix();
+      }
+    }
+
     if (this.postProcess && this.postProcess.enabled) {
+      // Update post-process camera reference when game camera switches
+      if (this._gameCamera) {
+        this.postProcess.updateSceneCamera(this.scene.threeScene, cam);
+      }
+
       // Pass 1: render scene WITH post-processing, gizmo hidden
       gizmoHelper.visible = false;
       this.postProcess.render();
@@ -323,7 +350,7 @@ export class SceneView {
       this.scene.threeScene.background = null;
       this.renderer.autoClear = false;
       this.renderer.clearDepth();
-      this.renderer.render(this.scene.threeScene, this.camera);
+      this.renderer.render(this.scene.threeScene, cam);
       this.renderer.autoClear = true;
       this.scene.threeScene.background = savedBg;
 
@@ -332,7 +359,7 @@ export class SceneView {
         child.visible = true;
       }
     } else {
-      this.renderer.render(this.scene.threeScene, this.camera);
+      this.renderer.render(this.scene.threeScene, cam);
     }
   }
 

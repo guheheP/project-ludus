@@ -12,6 +12,7 @@ import { UICanvas } from '../engine/components/UICanvas.js';
 import { GLBModel } from '../engine/components/GLBModel.js';
 import { ParticleEmitter } from '../engine/components/ParticleEmitter.js';
 import { Animator } from '../engine/components/Animator.js';
+import { Camera } from '../engine/components/Camera.js';
 import { ProceduralMesh, MODIFIER_TYPES } from '../modeling/ProceduralMesh.js';
 
 /**
@@ -135,6 +136,9 @@ export class SceneSerializer {
       }
       if (entity.hasComponent('Animator')) {
         entityData.components.Animator = entity.getComponent('Animator').serialize();
+      }
+      if (entity.hasComponent('Camera')) {
+        entityData.components.Camera = entity.getComponent('Camera').serialize();
       }
 
       data.entities.push(entityData);
@@ -282,6 +286,13 @@ export class SceneSerializer {
         anim.deserialize(comps.Animator);
         entity.addComponent(anim);
       }
+
+      // Camera
+      if (comps.Camera) {
+        const cam = new Camera();
+        cam.deserialize(comps.Camera);
+        entity.addComponent(cam);
+      }
     }
 
     // Third pass: restore parent-child relationships
@@ -372,6 +383,9 @@ export class SceneSerializer {
     if (entity.hasComponent('Animator')) {
       entityData.components.Animator = entity.getComponent('Animator').serialize();
     }
+    if (entity.hasComponent('Camera')) {
+      entityData.components.Camera = entity.getComponent('Camera').serialize();
+    }
 
     return entityData;
   }
@@ -459,6 +473,11 @@ export class SceneSerializer {
       const anim = new Animator();
       anim.deserialize(comps.Animator);
       entity.addComponent(anim);
+    }
+    if (comps.Camera) {
+      const cam = new Camera();
+      cam.deserialize(comps.Camera);
+      entity.addComponent(cam);
     }
 
     return entity;

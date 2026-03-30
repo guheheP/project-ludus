@@ -90,6 +90,7 @@ export class Toolbar {
     const lightGroup = this._createGroup();
     this._addButton(lightGroup, '☀️', 'Dir Light', 'add-dirlight');
     this._addButton(lightGroup, '💡', 'Point Light', 'add-pointlight');
+    this._addButton(lightGroup, '🎥', 'Camera', 'add-camera');
     this.container.appendChild(lightGroup);
 
     this._addSeparator();
@@ -182,6 +183,9 @@ export class Toolbar {
           break;
         case 'add-particle':
           this.onAddEntity?.('particle');
+          break;
+        case 'add-camera':
+          this.onAddEntity?.('camera');
           break;
         case 'save':
           this.onSave?.();

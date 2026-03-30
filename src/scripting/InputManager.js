@@ -16,11 +16,17 @@ export class InputManager {
   /** @type {{x: number, y: number}} Normalized mouse pos (-1 to 1) */
   mouse = { x: 0, y: 0 };
 
+  /** @type {{dx: number, dy: number}} Mouse movement delta this frame */
+  mouseDelta = { dx: 0, dy: 0 };
+
   /** @type {boolean} */
   mouseLeft = false;
 
   /** @type {boolean} */
   mouseRight = false;
+
+  /** @type {boolean} */
+  isCursorLocked = false;
 
   /** @type {HTMLElement|null} */
   _element = null;
@@ -50,6 +56,9 @@ export class InputManager {
         const rect = element.getBoundingClientRect();
         this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        // Accumulate movement delta
+        this.mouseDelta.dx += e.movementX || 0;
+        this.mouseDelta.dy += e.movementY || 0;
       };
 
       this._onMouseDown = (e) => {
@@ -65,6 +74,30 @@ export class InputManager {
       element.addEventListener('mousemove', this._onMouseMove);
       element.addEventListener('mousedown', this._onMouseDown);
       element.addEventListener('mouseup', this._onMouseUp);
+
+      // Track pointer lock state
+      this._onPointerLockChange = () => {
+        this.isCursorLocked = document.pointerLockElement === element;
+      };
+      document.addEventListener('pointerlockchange', this._onPointerLockChange);
+    }
+  }
+
+  /**
+   * Lock the cursor (Pointer Lock API)
+   */
+  lockCursor() {
+    if (this._element && !this.isCursorLocked) {
+      this._element.requestPointerLock();
+    }
+  }
+
+  /**
+   * Unlock the cursor
+   */
+  unlockCursor() {
+    if (this.isCursorLocked) {
+      document.exitPointerLock();
     }
   }
 
@@ -101,12 +134,19 @@ export class InputManager {
   endFrame() {
     this.keysPressed.clear();
     this.keysReleased.clear();
+    this.mouseDelta.dx = 0;
+    this.mouseDelta.dy = 0;
   }
 
   /**
    * Remove all event listeners. Call when InputManager is no longer needed.
    */
   dispose() {
+    // Release pointer lock if active
+    if (this.isCursorLocked) {
+      document.exitPointerLock();
+    }
+
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
 
@@ -114,6 +154,10 @@ export class InputManager {
       if (this._onMouseMove) this._element.removeEventListener('mousemove', this._onMouseMove);
       if (this._onMouseDown) this._element.removeEventListener('mousedown', this._onMouseDown);
       if (this._onMouseUp) this._element.removeEventListener('mouseup', this._onMouseUp);
+    }
+
+    if (this._onPointerLockChange) {
+      document.removeEventListener('pointerlockchange', this._onPointerLockChange);
     }
 
     this.keysDown.clear();

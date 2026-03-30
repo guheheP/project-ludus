@@ -109,6 +109,11 @@ export class Inspector {
       this._renderAnimator();
     }
 
+    // Camera
+    if (this.entity.hasComponent('Camera')) {
+      this._renderCamera();
+    }
+
     // Add Component button
     this._renderAddComponentButton();
   }
@@ -1089,6 +1094,57 @@ export class Inspector {
   }
 
   // =============================================
+  // Camera
+  // =============================================
+
+  _renderCamera() {
+    const cam = this.entity.getComponent('Camera');
+    const section = this._createSection('🎥', 'Camera', 'Camera');
+    const body = section.querySelector('.component-body');
+
+    // Projection type
+    body.appendChild(this._createSelectRow('Projection', cam.projection,
+      ['perspective', 'orthographic'],
+      (val) => { cam.projection = val; cam._createCamera(); this._emitChange(); this.refresh(); }
+    ));
+
+    // FOV (perspective only)
+    if (cam.projection === 'perspective') {
+      body.appendChild(this._createNumberRow('FOV', cam.fov, 10, 150, 1, (val) => {
+        cam.fov = val; this._emitChange();
+      }));
+    }
+
+    // Ortho Size (orthographic only)
+    if (cam.projection === 'orthographic') {
+      body.appendChild(this._createNumberRow('Size', cam.orthoSize, 0.5, 50, 0.5, (val) => {
+        cam.orthoSize = val; this._emitChange();
+      }));
+    }
+
+    // Near / Far
+    body.appendChild(this._createNumberRow('Near', cam.near, 0.01, 100, 0.1, (val) => {
+      cam.near = val; this._emitChange();
+    }));
+    body.appendChild(this._createNumberRow('Far', cam.far, 10, 10000, 10, (val) => {
+      cam.far = val; this._emitChange();
+    }));
+
+    // Primary
+    body.appendChild(this._createCheckboxRow('Primary', cam.primary, (val) => {
+      cam.primary = val; this._emitChange();
+    }));
+
+    // Info
+    const info = document.createElement('div');
+    info.style.cssText = 'font-size:11px; color:var(--text-muted); margin-top:4px;';
+    info.textContent = 'Used as game camera during Play mode and export.';
+    body.appendChild(info);
+
+    this.container.appendChild(section);
+  }
+
+  // =============================================
   // Add Component Button
   // =============================================
 
@@ -1148,6 +1204,9 @@ export class Inspector {
     }
     if (!this.entity.hasComponent('Animator')) {
       items.push({ label: '🎬 Animator', comp: 'Animator' });
+    }
+    if (!this.entity.hasComponent('Camera')) {
+      items.push({ label: '🎥 Camera', comp: 'Camera' });
     }
 
     if (items.length === 0) {
@@ -1247,6 +1306,13 @@ export class Inspector {
       import('../../engine/components/Animator.js').then(({ Animator }) => {
         const anim = new Animator();
         this.entity.addComponent(anim);
+        this._emitChange();
+        this.refresh();
+      });
+    } else if (type === 'Camera') {
+      import('../../engine/components/Camera.js').then(({ Camera }) => {
+        const cam = new Camera();
+        this.entity.addComponent(cam);
         this._emitChange();
         this.refresh();
       });
