@@ -860,6 +860,69 @@ export class Inspector {
       this._emitChange();
     }));
 
+    // External file path
+    const filePathRow = document.createElement('div');
+    filePathRow.className = 'inspector-row';
+    filePathRow.innerHTML = `
+      <span class="inspector-label">File Path</span>
+      <div style="display:flex;gap:4px;flex:1;">
+        <input type="text" class="inspector-input" value="${script.filePath || ''}" 
+               placeholder="(embedded)" style="flex:1;" />
+        <button class="inspector-btn" title="Browse scripts folder" style="padding:2px 6px;font-size:10px;">📂</button>
+      </div>
+    `;
+    const fpInput = filePathRow.querySelector('input');
+    const fpBrowse = filePathRow.querySelector('button');
+    fpInput.addEventListener('change', async () => {
+      const val = fpInput.value.trim();
+      script.filePath = val || null;
+      if (val && this.onRequestScriptLoad) {
+        await this.onRequestScriptLoad(script, val);
+      }
+      this._emitChange();
+    });
+    fpBrowse.addEventListener('click', async () => {
+      if (this.onBrowseScripts) {
+        const files = await this.onBrowseScripts();
+        if (files && files.length > 0) {
+          // Show a simple selector dropdown
+          const menu = document.createElement('div');
+          menu.style.cssText = 'position:absolute;z-index:999;background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-height:200px;overflow-y:auto;min-width:150px;';
+          const rect = fpBrowse.getBoundingClientRect();
+          menu.style.left = rect.left + 'px';
+          menu.style.top = rect.bottom + 2 + 'px';
+          for (const file of files) {
+            const item = document.createElement('div');
+            item.textContent = file;
+            item.style.cssText = 'padding:4px 8px;cursor:pointer;font-size:11px;color:var(--text);';
+            item.addEventListener('mouseenter', () => item.style.background = 'var(--bg-hover)');
+            item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+            item.addEventListener('click', async () => {
+              script.filePath = file;
+              script.fileName = file;
+              fpInput.value = file;
+              menu.remove();
+              if (this.onRequestScriptLoad) {
+                await this.onRequestScriptLoad(script, file);
+              }
+              this._emitChange();
+              this.setEntity(this.entity); // refresh
+            });
+            menu.appendChild(item);
+          }
+          document.body.appendChild(menu);
+          const closeMenu = (e) => {
+            if (!menu.contains(e.target)) {
+              menu.remove();
+              document.removeEventListener('mousedown', closeMenu);
+            }
+          };
+          setTimeout(() => document.addEventListener('mousedown', closeMenu), 0);
+        }
+      }
+    });
+    body.appendChild(filePathRow);
+
     // Error display
     if (script._hasError) {
       const errorDiv = document.createElement('div');
@@ -2283,23 +2346,34 @@ export class Inspector {
    * @param {Function} onUpdate - called with new absolute value
    */
   _addDragBehavior(input, baseSensitivity, onUpdate) {
+    let isMouseDown = false;
     let isDragging = false;
     let startX = 0;
     let startValue = 0;
 
     input.addEventListener('mousedown', (e) => {
       if (document.activeElement === input) return;
-      isDragging = true;
+      isMouseDown = true;
       startX = e.clientX;
       startValue = parseFloat(input.value) || 0;
-      input.style.cursor = 'ew-resize';
-      document.body.style.cursor = 'ew-resize';
-      document.body.style.userSelect = 'none';
-      e.preventDefault();
+      // Do not preventDefault here so the input can still receive focus on click
     });
 
     const onMove = (e) => {
-      if (!isDragging) return;
+      if (!isMouseDown) return;
+
+      if (!isDragging) {
+        if (Math.abs(e.clientX - startX) > 2) {
+          isDragging = true;
+          input.blur(); // Blur so the text cursor doesn't interfere
+          input.style.cursor = 'ew-resize';
+          document.body.style.cursor = 'ew-resize';
+          document.body.style.userSelect = 'none';
+        } else {
+          return;
+        }
+      }
+
       const pixelDelta = e.clientX - startX;
 
       // Shift = fine (0.1x), normal (1x), Ctrl = fast (10x)
@@ -2312,6 +2386,7 @@ export class Inspector {
     };
 
     const onUp = () => {
+      isMouseDown = false;
       if (isDragging) {
         isDragging = false;
         input.style.cursor = '';

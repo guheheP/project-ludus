@@ -205,6 +205,24 @@ export class Editor {
     this.inspector.assetManager = this.assetManager;
     // Phase 12B: Environment system for Scene root
     this.inspector.environment = this.environment;
+    // Script file browsing callbacks
+    this.inspector.onBrowseScripts = async () => {
+      return this.projectManager.isOpen ? await this.projectManager.listScripts() : [];
+    };
+    this.inspector.onRequestScriptLoad = async (script, fileName) => {
+      if (!this.projectManager.isOpen) return;
+      const code = await this.projectManager.loadScript(fileName);
+      if (code !== null) {
+        script.code = code;
+        this._log('info', `Script loaded from file: ${fileName}`);
+        // Refresh script editor if open
+        if (this.selectedEntity && this.selectedEntity.getComponent('Script') === script) {
+          this.scriptEditor?.setEntity(this.selectedEntity);
+        }
+      } else {
+        this._log('warn', `Script file not found: ${fileName}`);
+      }
+    };
 
     // Toolbar
     const toolbarEl = document.getElementById('toolbar');
@@ -388,6 +406,13 @@ export class Editor {
       // Snapshot the scene before playing
       this._playSnapshot = JSON.stringify(SceneSerializer.serialize(this.scene));
 
+      // Save editor camera state before Play mode
+      this._savedCameraState = {
+        position: this.sceneView.camera.position.clone(),
+        target: this.sceneView.orbitControls.target.clone(),
+        up: this.sceneView.camera.up.clone(),
+      };
+
       // Initialize physics bodies
       if (this.physics && this.physics.initialized) {
         this.physics.reset();
@@ -422,11 +447,16 @@ export class Editor {
       // Phase 11: Load prefab registry from project
       await this._loadPrefabRegistry();
 
+      // Load external script files before starting
+      await this._loadExternalScripts();
+
       this.scriptRuntime.start();
 
       // If a Camera entity exists, switch rendering to its camera
       if (this.scriptRuntime.activeCamera) {
         this.sceneView._gameCamera = this.scriptRuntime.activeCamera;
+        // Disable orbit controls so they don't fight with the game camera
+        this.sceneView.orbitControls.enabled = false;
       }
     } else if (this.mode === 'pause') {
       // Resume from pause
@@ -451,6 +481,16 @@ export class Editor {
 
     // Restore editor camera
     this.sceneView._gameCamera = null;
+    this.sceneView.orbitControls.enabled = true;
+
+    // Restore saved editor camera state
+    if (this._savedCameraState) {
+      this.sceneView.camera.position.copy(this._savedCameraState.position);
+      this.sceneView.camera.up.copy(this._savedCameraState.up);
+      this.sceneView.orbitControls.target.copy(this._savedCameraState.target);
+      this.sceneView.orbitControls.update();
+      this._savedCameraState = null;
+    }
 
     // Stop scripts
     if (this.scriptRuntime) {

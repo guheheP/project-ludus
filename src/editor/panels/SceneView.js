@@ -564,7 +564,11 @@ export class SceneView {
    */
   render() {
     if (!this.scene) return;
-    this.orbitControls.update();
+    // Only update orbit controls when NOT using a game camera
+    // (prevents editor camera drift during Play mode)
+    if (!this._gameCamera) {
+      this.orbitControls.update();
+    }
 
     const cam = this._activeCamera;
     const gizmoHelper = this.transformControls.getHelper();

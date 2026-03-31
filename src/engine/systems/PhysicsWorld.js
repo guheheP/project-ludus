@@ -306,7 +306,7 @@ export class PhysicsWorld {
       const { rigidBody, entity } = data;
       if (!entity.active) continue;
       const rb = entity.getComponent('RigidBody');
-      if (!rb || rb.bodyType === 'static') continue;
+      if (!rb || rb.bodyType !== 'dynamic') continue;
 
       const pos = rigidBody.translation();
       const rot = rigidBody.rotation();

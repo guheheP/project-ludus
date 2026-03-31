@@ -430,6 +430,9 @@ html, body {
   font-size: var(--font-size-xs);
   line-height: 1.6;
   color: var(--text-secondary);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .console-line {

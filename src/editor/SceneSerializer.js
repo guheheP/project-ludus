@@ -456,13 +456,13 @@ export class SceneSerializer {
     }
     if (comps.ProceduralMesh) {
       const pm = new ProceduralMesh();
-      pm.deserialize(comps.ProceduralMesh);
       entity.addComponent(pm);
+      pm.deserialize(comps.ProceduralMesh);
     }
     if (comps.EditableMesh) {
       const em = new EditableMesh();
-      em.deserialize(comps.EditableMesh);
       entity.addComponent(em);
+      em.deserialize(comps.EditableMesh);
     }
     if (comps.MeshRenderer) {
       const mr = new MeshRenderer();

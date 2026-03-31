@@ -70,6 +70,12 @@ export class ProjectManager {
    */
   async openProject() {
     try {
+      // File System Access API is only available in Chromium-based browsers (Chrome, Edge)
+      if (!window.showDirectoryPicker) {
+        this._log('error', 'File System Access API is not supported in this browser. Please use Chrome or Edge.');
+        return false;
+      }
+
       this.rootHandle = await window.showDirectoryPicker({
         mode: 'readwrite',
       });
@@ -559,16 +565,378 @@ export class ProjectManager {
    */
   async _ensureProjectMeta() {
     const existing = await this._readFile(this.rootHandle, 'project.ludus.json');
-    if (existing) return;
+    if (!existing) {
+      const meta = {
+        name: this.projectName,
+        version: '1.0.0',
+        engine: 'project-ludus',
+        createdAt: new Date().toISOString(),
+      };
+      await this._writeFile(this.rootHandle, 'project.ludus.json', JSON.stringify(meta, null, 2));
+    }
 
-    const meta = {
-      name: this.projectName,
-      version: '1.0.0',
-      engine: 'project-ludus',
-      createdAt: new Date().toISOString(),
-    };
-    await this._writeFile(this.rootHandle, 'project.ludus.json', JSON.stringify(meta, null, 2));
+    // Generate AI-readable documentation
+    await this._ensureDocumentation();
   }
+
+  /**
+   * Generate .ludus/ directory with AI-readable documentation and schema
+   */
+  async _ensureDocumentation() {
+    const ludusDir = await this._ensureDir(this.rootHandle, '.ludus');
+
+    // Always regenerate docs so they stay up-to-date with the engine
+    const apiRef = await ProjectManager._loadAPIReference();
+    await this._writeFile(ludusDir, 'api-reference.md', apiRef);
+    await this._writeFile(ludusDir, 'scene-schema.json', ProjectManager._SCENE_SCHEMA);
+    await this._writeFile(ludusDir, 'README.md', ProjectManager._PROJECT_README(this.projectName));
+
+    this._log('info', 'Generated .ludus/ documentation for AI assistants');
+  }
+
+  // =============================================
+  // Static Documentation Templates
+  // =============================================
+
+  static _PROJECT_README(name) {
+    return `# ${name}
+
+> Created with **Project Ludus** — A browser-based 3D game editor
+
+## Project Structure
+
+\`\`\`
+${name}/
+├── project.ludus.json         ← Project metadata
+├── scenes/
+│   └── main.ludus.json        ← Scene definition (entities + components)
+├── scripts/
+│   ├── player.js              ← Individual script source files
+│   └── game_manager.js
+├── prefabs/
+│   └── enemy.prefab.json      ← Reusable entity templates
+├── assets/
+│   ├── textures/
+│   ├── models/                ← GLB/GLTF 3D models
+│   └── audio/                 ← MP3/WAV audio files
+└── .ludus/
+    ├── README.md              ← This file
+    ├── api-reference.md       ← Full scripting API reference
+    └── scene-schema.json      ← Scene JSON schema
+\`\`\`
+
+## For AI Assistants
+
+- **Read \`.ludus/api-reference.md\`** for the complete scripting API, component list, and code examples.
+- **Read \`.ludus/scene-schema.json\`** for the scene file format (JSON Schema).
+- Scripts are in \`scripts/\` and are written in vanilla JavaScript.
+- Scene files are in \`scenes/\` and follow the schema in \`.ludus/scene-schema.json\`.
+
+## Engine Features
+
+- **ECS Architecture**: Entity-Component-System with Transform, Mesh, Physics, Audio, UI, Camera, Particles, Animations
+- **Procedural Modeling**: Box, Sphere, Cylinder, Cone, Torus, Plane, Capsule with Twist/Bend/Taper/Noise/Subdivide modifiers
+- **Vertex Editing**: Convert ProceduralMesh to EditableMesh for direct vertex manipulation with symmetry support
+- **Physics**: Rapier3D (dynamic, static, kinematic bodies; box/sphere/capsule/cylinder/mesh/convex colliders)
+- **Scripting**: Per-entity JavaScript scripts with \`start()\`, \`update(dt)\`, \`onCollision(other)\` lifecycle
+- **Post-Processing**: Bloom, SSAO, Vignette, Color Grading
+- **Environment**: Sky presets (day/sunset/night/overcast), gradient backgrounds, fog (linear/exponential)
+- **Audio**: Spatial and 2D audio with AudioSource/AudioListener components
+- **UI System**: HUD text, buttons, progress bars, images via UICanvas
+- **Animation**: Keyframe Animator + AnimationPlayer for property-based animations
+- **Export**: One-click export to standalone HTML+JS zip
+`;
+  }
+
+  static _API_REFERENCE = ''; // Will be loaded asynchronously
+
+  /**
+   * Load the API reference markdown from the bundled .ludus directory
+   */
+  static async _loadAPIReference() {
+    if (ProjectManager._API_REFERENCE) return ProjectManager._API_REFERENCE;
+    try {
+      const resp = await fetch(new URL('../../.ludus/api-reference.md', import.meta.url));
+      if (resp.ok) {
+        ProjectManager._API_REFERENCE = await resp.text();
+        return ProjectManager._API_REFERENCE;
+      }
+    } catch (_) {
+      // Fetch failed, use fallback
+    }
+    // Minimal fallback
+    ProjectManager._API_REFERENCE = [
+      '# Project Ludus — Scripting API Reference',
+      '',
+      '> See the full documentation at .ludus/api-reference.md in your project.',
+      '',
+      'This file could not be auto-generated. Please copy the API reference',
+      'from the engine source directory.',
+    ].join('\n');
+    return ProjectManager._API_REFERENCE;
+  }
+
+  static _SCENE_SCHEMA = JSON.stringify({
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Project Ludus Scene",
+    "description": "Schema for Project Ludus scene files (.ludus.json)",
+    "type": "object",
+    "required": ["version", "name", "entities"],
+    "properties": {
+      "version": { "type": "string", "const": "1.0.0" },
+      "name": { "type": "string", "description": "Scene display name" },
+      "createdAt": { "type": "string", "format": "date-time" },
+      "entities": { "type": "array", "items": { "$ref": "#/definitions/Entity" } },
+      "postProcess": { "$ref": "#/definitions/PostProcess" },
+      "environment": { "$ref": "#/definitions/Environment" }
+    },
+    "definitions": {
+      "Vec3": {
+        "type": "object",
+        "required": ["x", "y", "z"],
+        "properties": {
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "z": { "type": "number" }
+        }
+      },
+      "Entity": {
+        "type": "object",
+        "required": ["id", "name", "components"],
+        "properties": {
+          "id": { "type": "integer", "description": "Unique entity ID" },
+          "name": { "type": "string" },
+          "tag": { "type": "string" },
+          "active": { "type": "boolean" },
+          "parentId": { "type": ["integer", "null"], "description": "Parent entity ID (null = root child)" },
+          "components": { "$ref": "#/definitions/Components" }
+        }
+      },
+      "Components": {
+        "type": "object",
+        "properties": {
+          "Transform": { "$ref": "#/definitions/TransformComponent" },
+          "ProceduralMesh": { "$ref": "#/definitions/ProceduralMeshComponent" },
+          "EditableMesh": { "$ref": "#/definitions/EditableMeshComponent" },
+          "MeshRenderer": { "$ref": "#/definitions/MeshRendererComponent" },
+          "Light": { "$ref": "#/definitions/LightComponent" },
+          "Script": { "$ref": "#/definitions/ScriptComponent" },
+          "RigidBody": { "$ref": "#/definitions/RigidBodyComponent" },
+          "Collider": { "$ref": "#/definitions/ColliderComponent" },
+          "Camera": { "$ref": "#/definitions/CameraComponent" },
+          "AudioListener": { "type": "object" },
+          "AudioSource": { "$ref": "#/definitions/AudioSourceComponent" },
+          "UICanvas": { "$ref": "#/definitions/UICanvasComponent" },
+          "GLBModel": { "$ref": "#/definitions/GLBModelComponent" },
+          "ParticleEmitter": { "$ref": "#/definitions/ParticleEmitterComponent" },
+          "Animator": { "type": "object", "description": "Keyframe animation controller" },
+          "AnimationPlayer": { "$ref": "#/definitions/AnimationPlayerComponent" },
+          "InstancedMeshRenderer": { "type": "object", "description": "GPU-instanced mesh rendering" }
+        }
+      },
+      "TransformComponent": {
+        "type": "object",
+        "properties": {
+          "position": { "$ref": "#/definitions/Vec3" },
+          "rotation": { "$ref": "#/definitions/Vec3", "description": "Euler rotation in radians" },
+          "scale": { "$ref": "#/definitions/Vec3" }
+        }
+      },
+      "ProceduralMeshComponent": {
+        "type": "object",
+        "required": ["shapeType"],
+        "properties": {
+          "shapeType": { "type": "string", "enum": ["box", "sphere", "cylinder", "cone", "torus", "plane", "capsule"] },
+          "shapeParams": { "type": "object" },
+          "color": { "type": "string" },
+          "metalness": { "type": "number", "minimum": 0, "maximum": 1 },
+          "roughness": { "type": "number", "minimum": 0, "maximum": 1 },
+          "wireframe": { "type": "boolean" },
+          "modifiers": { "type": "array", "items": { "$ref": "#/definitions/Modifier" } },
+          "diffuseMapId": { "type": ["string", "null"] },
+          "normalMapId": { "type": ["string", "null"] },
+          "roughnessMapId": { "type": ["string", "null"] },
+          "metalnessMapId": { "type": ["string", "null"] },
+          "emissiveMapId": { "type": ["string", "null"] },
+          "emissiveIntensity": { "type": "number" },
+          "emissiveColor": { "type": "string" },
+          "normalScale": { "type": "number" },
+          "uvRepeat": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
+        }
+      },
+      "EditableMeshComponent": {
+        "type": "object",
+        "description": "Vertex-editable mesh baked from ProceduralMesh",
+        "properties": {
+          "positions": { "type": "array", "items": { "type": "number" }, "description": "Flat array of vertex positions [x0,y0,z0,x1,y1,z1,...]" },
+          "uvs": { "type": "array", "items": { "type": "number" } },
+          "normals": { "type": "array", "items": { "type": "number" } },
+          "indices": { "type": "array", "items": { "type": "integer" } },
+          "color": { "type": "string" },
+          "metalness": { "type": "number" },
+          "roughness": { "type": "number" },
+          "wireframe": { "type": "boolean" }
+        }
+      },
+      "Modifier": {
+        "type": "object",
+        "required": ["type", "enabled"],
+        "properties": {
+          "type": { "type": "string", "enum": ["Twist", "Bend", "Taper", "Noise", "Subdivide"] },
+          "enabled": { "type": "boolean" },
+          "angle": { "type": "number" },
+          "axis": { "type": "string", "enum": ["x", "y", "z"] },
+          "direction": { "type": "string", "enum": ["x", "y", "z"] },
+          "amount": { "type": "number" },
+          "curve": { "type": "string", "enum": ["linear", "smooth", "sqrt"] },
+          "strength": { "type": "number" },
+          "frequency": { "type": "number" },
+          "seed": { "type": "number" },
+          "iterations": { "type": "integer", "minimum": 0, "maximum": 4 }
+        }
+      },
+      "MeshRendererComponent": {
+        "type": "object",
+        "description": "Legacy mesh renderer (use ProceduralMesh for new entities)",
+        "properties": {
+          "geometryType": { "type": "string" },
+          "geometryParams": { "type": "object" },
+          "color": { "type": "string" },
+          "metalness": { "type": "number" },
+          "roughness": { "type": "number" },
+          "wireframe": { "type": "boolean" }
+        }
+      },
+      "LightComponent": {
+        "type": "object",
+        "required": ["lightType"],
+        "properties": {
+          "lightType": { "type": "string", "enum": ["directional", "point", "spot", "ambient"] },
+          "color": { "type": "string" },
+          "intensity": { "type": "number", "minimum": 0 },
+          "castShadow": { "type": "boolean" }
+        }
+      },
+      "ScriptComponent": {
+        "type": "object",
+        "properties": {
+          "fileName": { "type": "string", "description": "Display name for the script" },
+          "filePath": { "type": "string", "description": "External file reference in scripts/ folder" },
+          "code": { "type": "string", "description": "Embedded code (only when filePath is not set)" },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "RigidBodyComponent": {
+        "type": "object",
+        "properties": {
+          "bodyType": { "type": "string", "enum": ["dynamic", "static", "kinematic"] },
+          "mass": { "type": "number", "minimum": 0.01 },
+          "gravityScale": { "type": "number" },
+          "linearDamping": { "type": "number", "minimum": 0 },
+          "angularDamping": { "type": "number", "minimum": 0 },
+          "lockRotation": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "boolean" },
+              "y": { "type": "boolean" },
+              "z": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "ColliderComponent": {
+        "type": "object",
+        "properties": {
+          "shape": { "type": "string", "enum": ["box", "sphere", "capsule", "cylinder", "mesh", "convex"] },
+          "size": { "$ref": "#/definitions/Vec3", "description": "Box half-extents" },
+          "radius": { "type": "number", "minimum": 0.01 },
+          "height": { "type": "number", "minimum": 0.01 },
+          "restitution": { "type": "number", "minimum": 0, "maximum": 1 },
+          "friction": { "type": "number", "minimum": 0, "maximum": 2 },
+          "isTrigger": { "type": "boolean" },
+          "autoFit": { "type": "boolean", "description": "Auto-fit collider to mesh geometry" }
+        }
+      },
+      "CameraComponent": {
+        "type": "object",
+        "properties": {
+          "fov": { "type": "number", "minimum": 10, "maximum": 170 },
+          "near": { "type": "number", "minimum": 0.01 },
+          "far": { "type": "number" }
+        }
+      },
+      "AudioSourceComponent": {
+        "type": "object",
+        "properties": {
+          "assetId": { "type": ["string", "null"] },
+          "autoplay": { "type": "boolean" },
+          "loop": { "type": "boolean" },
+          "volume": { "type": "number", "minimum": 0, "maximum": 1 },
+          "spatial": { "type": "boolean" }
+        }
+      },
+      "UICanvasComponent": {
+        "type": "object",
+        "properties": {
+          "overlay": { "type": "boolean" }
+        }
+      },
+      "GLBModelComponent": {
+        "type": "object",
+        "properties": {
+          "assetId": { "type": "string" },
+          "fileName": { "type": "string" }
+        }
+      },
+      "ParticleEmitterComponent": {
+        "type": "object",
+        "properties": {
+          "maxParticles": { "type": "integer" },
+          "emitRate": { "type": "number" },
+          "lifetime": { "type": "number" },
+          "speed": { "type": "number" },
+          "size": { "type": "number" },
+          "color": { "type": "string" },
+          "preset": { "type": "string", "enum": ["fire", "smoke", "sparkle", "snow", "rain"] }
+        }
+      },
+      "AnimationPlayerComponent": {
+        "type": "object",
+        "properties": {
+          "duration": { "type": "number" },
+          "loop": { "type": "boolean" },
+          "autoPlay": { "type": "boolean" },
+          "keyframes": { "type": "array" }
+        }
+      },
+      "PostProcess": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "bloom": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "strength": { "type": "number" }, "threshold": { "type": "number" }, "radius": { "type": "number" } } },
+          "ssao": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "radius": { "type": "number" }, "intensity": { "type": "number" } } },
+          "vignette": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "offset": { "type": "number" }, "darkness": { "type": "number" } } },
+          "colorGrading": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "brightness": { "type": "number" }, "contrast": { "type": "number" }, "saturation": { "type": "number" } } }
+        }
+      },
+      "Environment": {
+        "type": "object",
+        "properties": {
+          "backgroundType": { "type": "string", "enum": ["solid", "gradient", "sky"] },
+          "backgroundColor": { "type": "string" },
+          "gradientTop": { "type": "string" },
+          "gradientBottom": { "type": "string" },
+          "skyPreset": { "type": "string", "enum": ["day", "sunset", "night", "overcast"] },
+          "fogEnabled": { "type": "boolean" },
+          "fogType": { "type": "string", "enum": ["linear", "exponential"] },
+          "fogColor": { "type": "string" },
+          "fogNear": { "type": "number" },
+          "fogFar": { "type": "number" },
+          "fogDensity": { "type": "number" }
+        }
+      }
+    }
+  }, null, 2);
 
   _log(level, message) {
     if (this.onLog) this.onLog(level, message);
