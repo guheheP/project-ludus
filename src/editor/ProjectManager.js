@@ -54,8 +54,14 @@ export class ProjectManager {
   /** @type {Function|null} External change callback */
   onExternalChange = null;
 
-  /** @type {number|null} Polling interval ID */
+  /** @type {number|null} Polling interval ID (legacy) */
   _watchInterval = null;
+
+  /** @type {number|null} Polling timeout ID */
+  _watchTimeout = null;
+
+  /** @type {boolean} Whether watching is active */
+  _watching = false;
 
   /** @type {number} Polling interval in ms */
   _watchDelay = 1500;
@@ -392,17 +398,36 @@ export class ProjectManager {
     if (!this.isOpen) return;
     this.stopWatching();
 
-    // Build initial snapshot
+    // Build initial snapshot, then begin async polling loop
     this._buildTimestampSnapshot().then(() => {
-      this._watchInterval = setInterval(() => this._pollChanges(), this._watchDelay);
+      this._watching = true;
+      this._schedulePoll();
       this._log('info', 'File watching started');
     });
+  }
+
+  /**
+   * Schedule the next poll after the delay. Uses setTimeout so the next
+   * poll only fires after the previous _pollChanges() completes.
+   */
+  _schedulePoll() {
+    if (!this._watching) return;
+    this._watchTimeout = setTimeout(async () => {
+      await this._pollChanges();
+      this._schedulePoll(); // schedule next only after completion
+    }, this._watchDelay);
   }
 
   /**
    * Stop watching for changes
    */
   stopWatching() {
+    this._watching = false;
+    if (this._watchTimeout !== null) {
+      clearTimeout(this._watchTimeout);
+      this._watchTimeout = null;
+    }
+    // Legacy cleanup
     if (this._watchInterval !== null) {
       clearInterval(this._watchInterval);
       this._watchInterval = null;

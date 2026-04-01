@@ -29,6 +29,9 @@ export class Inspector {
   /** @type {import('../../engine/systems/PostProcessManager.js').PostProcessManager|null} */
   postProcess = null;
 
+  /** @type {Array<{target: EventTarget, event: string, handler: Function}>} */
+  _windowListeners = [];
+
   constructor(container) {
     this.container = container;
     this._showEmpty();
@@ -40,6 +43,7 @@ export class Inspector {
   }
 
   refresh() {
+    this._cleanupWindowListeners();
     this.container.innerHTML = '';
 
     if (!this.entity) {
@@ -2395,8 +2399,8 @@ export class Inspector {
       }
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    this._trackWindowListener(window, 'mousemove', onMove);
+    this._trackWindowListener(window, 'mouseup', onUp);
   }
 
   /**
@@ -2441,8 +2445,8 @@ export class Inspector {
       }
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    this._trackWindowListener(window, 'mousemove', onMove);
+    this._trackWindowListener(window, 'mouseup', onUp);
   }
 
   /**
@@ -2483,8 +2487,34 @@ export class Inspector {
       }
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    this._trackWindowListener(window, 'mousemove', onMove);
+    this._trackWindowListener(window, 'mouseup', onUp);
+  }
+
+  // =============================================
+  // Window Listener Lifecycle Management
+  // =============================================
+
+  /**
+   * Register a window/document-level event listener and track it for cleanup.
+   * @param {EventTarget} target
+   * @param {string} event
+   * @param {Function} handler
+   */
+  _trackWindowListener(target, event, handler) {
+    target.addEventListener(event, handler);
+    this._windowListeners.push({ target, event, handler });
+  }
+
+  /**
+   * Remove all tracked window/document-level event listeners.
+   * Called before DOM rebuild in refresh().
+   */
+  _cleanupWindowListeners() {
+    for (const { target, event, handler } of this._windowListeners) {
+      target.removeEventListener(event, handler);
+    }
+    this._windowListeners = [];
   }
 
   // =============================================

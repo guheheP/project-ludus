@@ -68,6 +68,12 @@ export class ScriptRuntime {
   /** @type {Map<string, object>} In-memory prefab registry (loaded from project) */
   _prefabRegistry = new Map();
 
+  /** @type {Function|null} Bound handler for unhandled promise rejections */
+  _boundUnhandledRejection = null;
+
+  /** @type {Function|null} Bound handler for uncaught global errors */
+  _boundGlobalError = null;
+
   constructor(scene, input, physics = null, audioSystem = null, uiSystem = null, tweenManager = null) {
     this.scene = scene;
     this.input = input;
@@ -103,6 +109,9 @@ export class ScriptRuntime {
     this.isRunning = true;
     this._gameStore.clear();
     this._pendingDestroys = [];
+
+    // Install global error handlers for async user script errors
+    this._installGlobalErrorHandlers();
 
     // Resolve camera
     this._resolveCamera();
@@ -209,6 +218,9 @@ export class ScriptRuntime {
     this._pendingDestroys = [];
     this._activeCameraComponent = null;
     this.activeCamera = null;
+
+    // Remove global error handlers
+    this._removeGlobalErrorHandlers();
 
     this.scene.entityMap.forEach((entity) => {
       if (entity.hasComponent('Script')) {
@@ -446,6 +458,60 @@ export class ScriptRuntime {
       if (this.onCriticalError) {
         this.onCriticalError(`[${script.entity?.name}] Runtime error: ${err.message}`);
       }
+    }
+  }
+
+  // =============================================
+  // Global Error Handlers for Async Script Errors
+  // =============================================
+
+  /**
+   * Install window-level error handlers to catch unhandled promise rejections
+   * and uncaught errors from user scripts (setTimeout, async/await, etc.)
+   */
+  _installGlobalErrorHandlers() {
+    this._removeGlobalErrorHandlers(); // Safety: remove any prior handlers
+
+    this._boundUnhandledRejection = (event) => {
+      if (!this.isRunning) return;
+      event.preventDefault(); // Prevent default browser logging
+      const reason = event.reason;
+      const message = reason instanceof Error ? reason.message : String(reason);
+      if (this.onError) {
+        this.onError(`[Script] Unhandled async error: ${message}`);
+      }
+      if (this.onLog) {
+        this.onLog('error', `Unhandled promise rejection in user script: ${message}`);
+      }
+    };
+
+    this._boundGlobalError = (event) => {
+      if (!this.isRunning) return;
+      // Only intercept errors likely from user scripts (eval'd code)
+      const message = event.message || 'Unknown error';
+      if (this.onError) {
+        this.onError(`[Script] Uncaught error: ${message}`);
+      }
+      if (this.onLog) {
+        this.onLog('error', `Uncaught error in user script: ${message}`);
+      }
+    };
+
+    window.addEventListener('unhandledrejection', this._boundUnhandledRejection);
+    window.addEventListener('error', this._boundGlobalError);
+  }
+
+  /**
+   * Remove the global error handlers installed during start()
+   */
+  _removeGlobalErrorHandlers() {
+    if (this._boundUnhandledRejection) {
+      window.removeEventListener('unhandledrejection', this._boundUnhandledRejection);
+      this._boundUnhandledRejection = null;
+    }
+    if (this._boundGlobalError) {
+      window.removeEventListener('error', this._boundGlobalError);
+      this._boundGlobalError = null;
     }
   }
 
