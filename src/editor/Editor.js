@@ -44,6 +44,8 @@ import { RemoveComponentCommand } from './commands/ComponentCommands.js';
 import { ReparentCommand } from './commands/ReparentCommand.js';
 import { VertexTransformCommand } from './commands/VertexTransformCommand.js';
 import { EnvironmentSystem } from '../engine/systems/EnvironmentSystem.js';
+import { ShortcutManager } from './ShortcutManager.js';
+import { EntityFactory } from './EntityFactory.js';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 
 const THREE_REVISION = THREE.REVISION;
@@ -181,6 +183,8 @@ export class Editor {
     this.sceneView = new SceneView(sceneContainer);
     this.sceneView.setScene(this.scene);
     this.sceneView.onSelectEntity = (entity) => this.selectEntity(entity);
+    // Connect lock check for raycasting
+    this.sceneView._isEntityLocked = (entityId) => this.hierarchy?.isLocked(entityId);
     this.sceneView.onTransformChange = () => this._onTransformChanged();
     this.sceneView.onTransformStart = () => this._onTransformStart();
     this.sceneView.onTransformEnd = () => this._onTransformEnd();
@@ -262,6 +266,7 @@ export class Editor {
     this.toolbar.onSave = () => this._saveScene();
     this.toolbar.onLoad = () => this._loadScene();
     this.toolbar.onExport = () => this._exportProject();
+    this.toolbar.onPreview = () => this._previewProject();
     this.toolbar.onOpenProject = () => this._openProject();
     this.toolbar.onUndo = () => { this.undoManager.undo(); this._afterUndoRedo(); };
     this.toolbar.onRedo = () => { this.undoManager.redo(); this._afterUndoRedo(); };
@@ -325,6 +330,10 @@ export class Editor {
     // Auto-save & recovery (async, after init)
     this._checkRecovery().then(() => {
       this._initAutoSave();
+      // Show welcome dialog (after recovery check, only if no recovery was applied)
+      if (!this._recoveryApplied) {
+        this._showWelcomeDialog();
+      }
     });
   }
 
@@ -336,6 +345,272 @@ export class Editor {
     } catch (err) {
       this._log('error', `Physics init failed: ${err.message}`);
     }
+  }
+
+  // =============================================
+  // Welcome Dialog (Phase 19-2)
+  // =============================================
+
+  _showWelcomeDialog() {
+    const overlay = document.createElement('div');
+    overlay.className = 'welcome-overlay';
+    overlay.id = 'welcome-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'welcome-dialog';
+
+    const dismiss = () => {
+      overlay.style.opacity = '0';
+      overlay.style.transition = 'opacity 0.3s';
+      setTimeout(() => overlay.remove(), 300);
+    };
+
+    dialog.innerHTML = `
+      <div class="welcome-header">
+        <h1 class="welcome-title">🎮 Project Ludus</h1>
+        <p class="welcome-subtitle">3D Game Editor — Build, Play, Export</p>
+      </div>
+
+      <div class="welcome-actions">
+        <button class="welcome-action-btn" id="welcome-new">
+          <span class="action-icon">✨</span>
+          New Scene
+          <span class="action-label">空のシーンから始める</span>
+        </button>
+        <button class="welcome-action-btn" id="welcome-open">
+          <span class="action-icon">📂</span>
+          Open Project
+          <span class="action-label">既存プロジェクトを開く</span>
+        </button>
+      </div>
+
+      <div class="welcome-divider">Templates</div>
+
+      <div class="welcome-templates">
+        <div class="welcome-template-card" data-template="clicker">
+          <div class="template-card-icon">👆</div>
+          <div class="template-card-title">Clicker Game</div>
+          <div class="template-card-desc">スコア管理・UI・アップグレード</div>
+        </div>
+        <div class="welcome-template-card" data-template="idle">
+          <div class="template-card-icon">⏳</div>
+          <div class="template-card-title">Idle Simulation</div>
+          <div class="template-card-desc">自動資源生成・プレステージ</div>
+        </div>
+        <div class="welcome-template-card" data-template="viewer">
+          <div class="template-card-icon">🎨</div>
+          <div class="template-card-title">3D Viewer</div>
+          <div class="template-card-desc">OrbitCamera・3点ライト</div>
+        </div>
+      </div>
+
+      <div class="welcome-footer">
+        <button class="welcome-skip" id="welcome-skip">デフォルトシーンで続行 →</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Event handlers
+    document.getElementById('welcome-new').addEventListener('click', () => {
+      dismiss();
+      // Already have default scene
+      this._log('info', '🆕 New scene created');
+    });
+
+    document.getElementById('welcome-open').addEventListener('click', () => {
+      dismiss();
+      this._openProject();
+    });
+
+    document.getElementById('welcome-skip').addEventListener('click', dismiss);
+
+    // Template cards
+    dialog.querySelectorAll('.welcome-template-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const template = card.getAttribute('data-template');
+        dismiss();
+        this._applyTemplate(template);
+      });
+    });
+
+    // Click outside to dismiss
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) dismiss();
+    });
+  }
+
+  /**
+   * Apply a template to the current scene
+   * @param {string} templateName
+   */
+  _applyTemplate(templateName) {
+    if (!this.entityFactory) {
+      this.entityFactory = new EntityFactory(this.scene);
+    }
+
+    switch (templateName) {
+      case 'clicker': {
+        // Create click target
+        const target = this.entityFactory.createPrimitive('sphere', '#ff6b6b');
+        target.name = 'ClickTarget';
+        const script = new ScriptComponent();
+        script.code = `// Click Target Script
+let bounceTimer = 0;
+
+function update(dt) {
+  if (bounceTimer > 0) {
+    bounceTimer -= dt * 5;
+    const s = 1 + Math.sin(bounceTimer * Math.PI) * 0.2;
+    transform.scale = { x: s, y: s, z: s };
+  }
+  if (input.isKeyPressed(' ')) {
+    const multiplier = game.get('multiplier', 1);
+    game.set('score', game.get('score', 0) + multiplier);
+    bounceTimer = 1;
+    const colors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff'];
+    renderer.setColor(colors[Math.floor(Math.random() * colors.length)]);
+    console.log('+' + multiplier);
+  }
+}`;
+        target.addComponent(script);
+
+        // Create game manager
+        const mgr = this.scene.createEntity('GameManager');
+        mgr.addComponent(new Transform());
+        const mgrScript = new ScriptComponent();
+        mgrScript.code = `// Game Manager
+let scoreText, infoText;
+
+function start() {
+  game.set('score', 0);
+  game.set('multiplier', 1);
+  scoreText = ui.createText('Score: 0', { x: 20, y: 20, fontSize: 28, color: '#fff', fontWeight: 'bold' });
+  infoText = ui.createText('Press SPACE to click!', { x: 20, y: 55, fontSize: 14, color: '#aaa' });
+  ui.createButton('x2 Multiplier (100)', () => {
+    const s = game.get('score', 0);
+    if (s >= 100) { game.set('score', s - 100); game.set('multiplier', game.get('multiplier', 1) * 2); }
+  }, { x: 20, y: 100, fontSize: 14 });
+}
+
+function update(dt) {
+  ui.updateText(scoreText, 'Score: ' + Math.floor(game.get('score', 0)));
+}`;
+        mgr.addComponent(mgrScript);
+
+        this._log('info', '🎮 Clicker template applied');
+        break;
+      }
+
+      case 'idle': {
+        // Create generator
+        const gen = this.entityFactory.createPrimitive('box', '#ffd700');
+        gen.name = 'Generator';
+        const genScript = new ScriptComponent();
+        genScript.code = `// Generator Script
+let pulseTimer = 0;
+
+function start() {
+  renderer.setEmissive('#ffd700', 0.3);
+}
+
+function update(dt) {
+  pulseTimer += dt;
+  renderer.setEmissive('#ffd700', 0.2 + Math.sin(pulseTimer * 2) * 0.15);
+  const level = game.get('level', 1);
+  const s = 1 + Math.log(level) * 0.15;
+  transform.scale = { x: s, y: s, z: s };
+}`;
+        gen.addComponent(genScript);
+
+        // Create idle manager
+        const mgr = this.scene.createEntity('IdleManager');
+        mgr.addComponent(new Transform());
+        const mgrScript = new ScriptComponent();
+        mgrScript.code = `// Idle Manager
+let goldText, rateText;
+
+function start() {
+  game.set('gold', 0);
+  game.set('rate', 1);
+  game.set('level', 1);
+  game.set('cost', 50);
+  goldText = ui.createText('Gold: 0', { x: 20, y: 20, fontSize: 28, color: '#ffd700', fontWeight: 'bold' });
+  rateText = ui.createText('1 gold/sec', { x: 20, y: 55, fontSize: 14, color: '#aaa' });
+  ui.createButton('Upgrade (' + game.get('cost') + 'g)', () => {
+    const g = game.get('gold', 0), c = game.get('cost', 50);
+    if (g >= c) {
+      game.set('gold', g - c);
+      const lv = game.get('level', 1) + 1;
+      game.set('level', lv);
+      game.set('rate', Math.floor(lv * 1.5));
+      game.set('cost', Math.floor(c * 1.8));
+      console.log('Level ' + lv);
+    }
+  }, { x: 20, y: 100, fontSize: 14 });
+}
+
+function update(dt) {
+  const g = game.get('gold', 0) + game.get('rate', 1) * dt;
+  game.set('gold', g);
+  ui.updateText(goldText, 'Gold: ' + Math.floor(g));
+  ui.updateText(rateText, game.get('rate') + ' gold/sec | Lv.' + game.get('level'));
+}`;
+        mgr.addComponent(mgrScript);
+
+        this._log('info', '⏳ Idle simulation template applied');
+        break;
+      }
+
+      case 'viewer': {
+        // Create camera with orbit script
+        const cam = this.entityFactory.createCamera();
+        cam.name = 'ViewerCamera';
+        const camScript = new ScriptComponent();
+        camScript.code = `// Orbit Camera
+let yaw = 0, pitch = 0.3, dist = 5;
+
+function update(dt) {
+  if (input.mouseLeft) {
+    const d = input.mouseDelta;
+    yaw -= d.dx * 0.005;
+    pitch = Math.max(-1.2, Math.min(1.2, pitch - d.dy * 0.005));
+  }
+  if (input.isKeyDown('q')) dist = Math.max(1, dist - dt * 3);
+  if (input.isKeyDown('z')) dist = Math.min(20, dist + dt * 3);
+  camera.setPosition(
+    dist * Math.sin(yaw) * Math.cos(pitch),
+    1 + dist * Math.sin(pitch),
+    dist * Math.cos(yaw) * Math.cos(pitch)
+  );
+  camera.lookAt(0, 1, 0);
+}`;
+        cam.addComponent(camScript);
+
+        // Create display model (torus as placeholder)
+        const model = this.entityFactory.createPrimitive('torus', '#6bcb77');
+        model.name = 'DisplayModel';
+        model.getComponent('Transform').setPosition(0, 1, 0);
+        const modelScript = new ScriptComponent();
+        modelScript.code = `// Turntable
+let auto = true, speed = 30;
+function update(dt) {
+  if (input.isKeyPressed(' ')) { auto = !auto; console.log('Rotate: ' + auto); }
+  if (auto) { const r = transform.rotation; transform.rotation = { x: r.x, y: r.y + speed * dt, z: r.z }; }
+}`;
+        model.addComponent(modelScript);
+
+        // Add rim light
+        this.entityFactory.createLight('point', { intensity: 0.8 });
+
+        this._log('info', '🎨 3D Viewer template applied');
+        break;
+      }
+    }
+
+    this.hierarchy.refresh();
+    this.selectEntity(null);
   }
 
   /**
@@ -628,47 +903,10 @@ export class Editor {
   // =============================================
 
   _addEntity(type) {
-    let entity;
-    const names = {
-      'box': 'Cube', 'sphere': 'Sphere', 'cylinder': 'Cylinder',
-      'cone': 'Cone', 'torus': 'Torus', 'plane': 'Plane', 'capsule': 'Capsule',
-    };
-
-    if (type === 'camera') {
-      entity = this.scene.createEntity('Camera');
-      entity.addComponent(new Transform());
-      entity.getComponent('Transform').setPosition(0, 5, 10);
-      const cam = new Camera();
-      entity.addComponent(cam);
-    } else if (type.includes('light')) {
-      const lightType = type.replace('-light', '');
-      const lightNames = { 'directional': 'Directional Light', 'point': 'Point Light' };
-      entity = this.scene.createEntity(lightNames[lightType] || 'Light');
-      entity.addComponent(new Transform());
-      const light = new Light();
-      entity.addComponent(light);
-      light.configure(lightType, { intensity: 1.5 });
-      const transform = entity.getComponent('Transform');
-      if (lightType === 'directional') {
-        transform.setPosition(5, 8, 5);
-      } else {
-        transform.setPosition(0, 3, 0);
-      }
-    } else if (type === 'particle') {
-      entity = this.scene.createEntity('Particle Emitter');
-      entity.addComponent(new Transform());
-      const pe = new ParticleEmitter();
-      pe.applyPreset('fire');
-      entity.addComponent(pe);
-      pe.init();
-    } else {
-      entity = this.scene.createEntity(names[type] || type);
-      entity.addComponent(new Transform());
-      const pm = new ProceduralMesh();
-      entity.addComponent(pm);
-      pm.configure(type, {}, { color: this._randomPastelColor() });
+    if (!this.entityFactory) {
+      this.entityFactory = new EntityFactory(this.scene);
     }
-
+    const entity = this.entityFactory.create(type);
     this.hierarchy.refresh();
     this.selectEntity(entity);
     this._log('info', `Created: ${entity.name}`);
@@ -1131,95 +1369,49 @@ function update(dt) {
   // =============================================
 
   _initKeyboardShortcuts() {
-    window.addEventListener('keydown', (e) => {
-      // Don't hijack Monaco editor input
-      if (e.target.closest('.monaco-editor')) return;
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    this.shortcutManager = new ShortcutManager();
+    const sm = this.shortcutManager;
 
-      switch (e.key) {
-        case 'w':
-        case 'e':
-        case 'r':
-        case 'g':
-          this.toolbar.handleKey(e.key);
-          break;
-        case 'Delete':
-        case 'Backspace':
-          this._deleteSelected();
-          break;
-        case 'd':
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            this._duplicateSelected();
-          }
-          break;
-        case 'c':
-          if (e.ctrlKey || e.metaKey) {
-            if (this.selectedEntity && this.selectedEntity !== this.scene.root) {
-              this._copyEntity();
-            }
-          }
-          break;
-        case 'v':
-          if (e.ctrlKey || e.metaKey) {
-            if (this._entityClipboard) {
-              e.preventDefault();
-              this._pasteEntity();
-            }
-          }
-          break;
-        case 'f':
-          if (this.selectedEntity) {
-            this.sceneView.focusOn(this.selectedEntity);
-          }
-          break;
-        case 'z':
-          if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
-            e.preventDefault();
-            this.undoManager.undo();
-            this._afterUndoRedo();
-          } else if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
-            e.preventDefault();
-            this.undoManager.redo();
-            this._afterUndoRedo();
-          }
-          break;
-        case 'y':
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            this.undoManager.redo();
-            this._afterUndoRedo();
-          }
-          break;
-        case 's':
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            this._saveScene();
-          }
-          break;
-        case 'o':
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            this._loadScene();
-          }
-          break;
-        case 'F5':
-          e.preventDefault();
-          if (this.mode === 'edit') this._play();
-          else this._stop();
-          break;
-        case 'F6':
-          e.preventDefault();
-          this._pause();
-          break;
-        case 'Escape':
-          if (this.mode !== 'edit') {
-            this._stop();
-          } else {
-            this.selectEntity(null);
-          }
-          break;
-      }
+    // Transform mode keys (delegated to toolbar)
+    sm.register('w', () => this.toolbar.handleKey('w'));
+    sm.register('e', () => this.toolbar.handleKey('e'));
+    sm.register('r', () => this.toolbar.handleKey('r'));
+    sm.register('g', () => this.toolbar.handleKey('g'));
+
+    // Entity operations
+    sm.register('delete', () => this._deleteSelected());
+    sm.register('backspace', () => this._deleteSelected());
+    sm.register('ctrl+d', (e) => { e.preventDefault(); this._duplicateSelected(); });
+    sm.register('ctrl+c', () => {
+      if (this.selectedEntity && this.selectedEntity !== this.scene.root) this._copyEntity();
+    });
+    sm.register('ctrl+v', (e) => {
+      if (this._entityClipboard) { e.preventDefault(); this._pasteEntity(); }
+    });
+
+    // Focus
+    sm.register('f', () => {
+      if (this.selectedEntity) this.sceneView.focusOn(this.selectedEntity);
+    });
+
+    // Undo/Redo
+    sm.register('ctrl+z', (e) => { e.preventDefault(); this.undoManager.undo(); this._afterUndoRedo(); });
+    sm.register('ctrl+shift+z', (e) => { e.preventDefault(); this.undoManager.redo(); this._afterUndoRedo(); });
+    sm.register('ctrl+y', (e) => { e.preventDefault(); this.undoManager.redo(); this._afterUndoRedo(); });
+
+    // Save/Load
+    sm.register('ctrl+s', (e) => { e.preventDefault(); this._saveScene(); });
+    sm.register('ctrl+o', (e) => { e.preventDefault(); this._loadScene(); });
+
+    // Play/Pause/Stop
+    sm.register('f5', (e) => {
+      e.preventDefault();
+      if (this.mode === 'edit') this._play(); else this._stop();
+    });
+    sm.register('f6', (e) => { e.preventDefault(); this._pause(); });
+    sm.register('f8', (e) => { e.preventDefault(); this._previewProject(); });
+    sm.register('escape', () => {
+      if (this.mode !== 'edit') this._stop(); else this.selectEntity(null);
     });
   }
 
@@ -1686,13 +1878,23 @@ function update(dt) {
   }
 
   async _exportProject() {
-    this._log('info', 'Exporting project to standalone ZIP...');
     try {
       const exporter = new Exporter(this.scene, this.assetManager);
+      exporter.onLog = (level, msg) => this._log(level, msg);
       await exporter.exportZip();
-      this._log('info', 'Export successful.');
     } catch (err) {
       this._log('error', `Export failed: ${err.message}`);
+      console.error(err);
+    }
+  }
+
+  async _previewProject() {
+    try {
+      const exporter = new Exporter(this.scene, this.assetManager);
+      exporter.onLog = (level, msg) => this._log(level, msg);
+      await exporter.preview();
+    } catch (err) {
+      this._log('error', `Preview failed: ${err.message}`);
       console.error(err);
     }
   }

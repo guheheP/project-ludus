@@ -521,10 +521,19 @@ export class SceneView {
     const intersects = this.raycaster.intersectObjects(meshes, false);
 
     if (intersects.length > 0) {
-      const entityId = intersects[0].object.userData.entityId;
-      const entity = this.scene.getEntityById(entityId);
-      if (entity && this.onSelectEntity) {
-        this.onSelectEntity(entity);
+      // Find first non-locked entity
+      let hitEntity = null;
+      for (const hit of intersects) {
+        const entityId = hit.object.userData.entityId;
+        // Skip locked entities (check via lockedIds callback)
+        if (this._isEntityLocked && this._isEntityLocked(entityId)) continue;
+        hitEntity = this.scene.getEntityById(entityId);
+        if (hitEntity) break;
+      }
+      if (hitEntity && this.onSelectEntity) {
+        this.onSelectEntity(hitEntity);
+      } else if (!hitEntity && this.onSelectEntity) {
+        this.onSelectEntity(null);
       }
     } else {
       if (this.onSelectEntity) {

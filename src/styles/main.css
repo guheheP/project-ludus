@@ -591,6 +591,24 @@ html, body {
   text-overflow: ellipsis;
 }
 
+.hierarchy-action-btn {
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.3;
+  padding: 0 2px;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.hierarchy-item:hover .hierarchy-action-btn {
+  opacity: 0.7;
+}
+
+.hierarchy-action-btn:hover {
+  opacity: 1 !important;
+}
+
 /* ============================================
    Inspector
    ============================================ */
@@ -1635,5 +1653,181 @@ select.timeline-kf-input {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
   opacity: 0.7;
+}
+
+/* =============================================
+   Welcome Dialog (Phase 19-2)
+   ============================================= */
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 20, 0.85);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: welcomeFadeIn 0.4s ease-out;
+}
+
+@keyframes welcomeFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.welcome-dialog {
+  background: linear-gradient(135deg, rgba(30, 30, 60, 0.95), rgba(20, 20, 40, 0.98));
+  border: 1px solid rgba(100, 100, 200, 0.2);
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 700px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 80px rgba(100, 100, 255, 0.05);
+  animation: welcomeSlideUp 0.5s ease-out;
+}
+
+@keyframes welcomeSlideUp {
+  from { transform: translateY(30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.welcome-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.welcome-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 8px 0;
+  letter-spacing: 1px;
+}
+
+.welcome-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.welcome-action-btn {
+  flex: 1;
+  padding: 14px 16px;
+  border: 1px solid rgba(100, 100, 200, 0.25);
+  border-radius: 10px;
+  background: rgba(40, 40, 80, 0.5);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.welcome-action-btn:hover {
+  background: rgba(80, 80, 160, 0.4);
+  border-color: rgba(140, 140, 255, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(100, 100, 255, 0.15);
+}
+
+.welcome-action-btn .action-icon {
+  font-size: 24px;
+}
+
+.welcome-action-btn .action-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.welcome-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.welcome-divider::before,
+.welcome-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(100, 100, 200, 0.15);
+}
+
+.welcome-templates {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.welcome-template-card {
+  padding: 16px;
+  border: 1px solid rgba(100, 100, 200, 0.15);
+  border-radius: 10px;
+  background: rgba(30, 30, 60, 0.4);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.welcome-template-card:hover {
+  background: rgba(60, 60, 120, 0.4);
+  border-color: rgba(140, 140, 255, 0.35);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(100, 100, 255, 0.12);
+}
+
+.template-card-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.template-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.template-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.welcome-footer {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.welcome-skip {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 12px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.welcome-skip:hover {
+  opacity: 1;
+  color: #ffffff;
 }
 

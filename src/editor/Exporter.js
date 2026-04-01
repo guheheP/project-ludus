@@ -9,16 +9,105 @@ export class Exporter {
   constructor(scene, assetManager) {
     this.scene = scene;
     this.assetManager = assetManager;
+    /** @type {Function|null} */
+    this.onLog = null;
+  }
+
+  _log(level, msg) {
+    if (this.onLog) this.onLog(level, msg);
+    else console.log(`[${level}]`, msg);
+  }
+
+  /**
+   * Validate the scene before export
+   * @returns {{ warnings: string[], errors: string[] }}
+   */
+  validate() {
+    const warnings = [];
+    const errors = [];
+
+    this.scene.entityMap.forEach((entity) => {
+      // Check for scripts with syntax issues
+      if (entity.hasComponent('Script')) {
+        const script = entity.getComponent('Script');
+        if (script.code) {
+          try {
+            new Function(script.code);
+          } catch (err) {
+            errors.push(`Script error in "${entity.name}": ${err.message}`);
+          }
+        }
+        if (!script.code || script.code.trim().length === 0) {
+          warnings.push(`"${entity.name}" has an empty script`);
+        }
+      }
+
+      // Check for GLB models without asset reference
+      if (entity.hasComponent('GLBModel')) {
+        const glb = entity.getComponent('GLBModel');
+        if (!glb.assetId) {
+          warnings.push(`"${entity.name}" has GLBModel but no asset assigned`);
+        }
+      }
+
+      // Check for ProceduralMesh with missing texture references
+      if (entity.hasComponent('ProceduralMesh')) {
+        const pm = entity.getComponent('ProceduralMesh');
+        const textureIds = [pm.diffuseMapId, pm.normalMapId, pm.roughnessMapId, pm.metalnessMapId, pm.emissiveMapId];
+        for (const id of textureIds) {
+          if (id && !this.assetManager.assets.find(a => a.id === id)) {
+            warnings.push(`"${entity.name}" references missing texture asset: ${id}`);
+          }
+        }
+      }
+
+      // Check for AudioSource without asset
+      if (entity.hasComponent('AudioSource')) {
+        const as = entity.getComponent('AudioSource');
+        if (!as.assetId) {
+          warnings.push(`"${entity.name}" has AudioSource but no audio asset`);
+        }
+      }
+    });
+
+    return { warnings, errors };
   }
 
   async exportZip() {
+    // 0. Pre-export validation
+    this._log('info', '🔍 Running pre-export validation...');
+    const { warnings, errors } = this.validate();
+    
+    for (const w of warnings) {
+      this._log('warn', `⚠ ${w}`);
+    }
+    for (const e of errors) {
+      this._log('error', `❌ ${e}`);
+    }
+
+    if (errors.length > 0) {
+      const proceed = confirm(
+        `${errors.length} error(s) found during validation.\n\n` +
+        errors.join('\n') + '\n\n' +
+        'Export anyway?'
+      );
+      if (!proceed) {
+        this._log('info', 'Export cancelled by user.');
+        return;
+      }
+    }
+
+    this._log('info', '📦 Starting export...');
     const zip = new JSZip();
 
     // 1. Serialize Scene
+    this._log('info', '  Serializing scene...');
     const sceneData = SceneSerializer.serialize(this.scene);
     zip.file('data/scene.json', JSON.stringify(sceneData, null, 2));
 
     // 2. Export Assets
+    const assetCount = this.assetManager.assets.length;
+    this._log('info', `  Packing ${assetCount} asset(s)...`);
     for (const asset of this.assetManager.assets) {
       const blob = await this.assetManager.getAssetBlob(asset.id);
       if (blob) {
@@ -32,11 +121,13 @@ export class Exporter {
       '<html lang="en">',
       '<head>',
       '  <meta charset="UTF-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
       '  <title>' + this.scene.name + '</title>',
       '  <style>',
-      '    body { margin: 0; padding: 0; overflow: hidden; background: #000; }',
+      '    * { margin: 0; padding: 0; box-sizing: border-box; }',
+      '    body { overflow: hidden; background: #000; }',
       '    #game-container { width: 100vw; height: 100vh; position: relative; }',
-      '    #loading { position: absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-family:sans-serif; }',
+      '    #loading { position: absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-family:sans-serif; font-size:18px; }',
       '    #ui-overlay { position: absolute; top:0; left:0; right:0; bottom:0; pointer-events:none; z-index:10; overflow:hidden; font-family:sans-serif; }',
       '  </style>',
       '  <script type="importmap">',
@@ -59,14 +150,13 @@ export class Exporter {
     ].join('\n');
     zip.file('index.html', html);
 
-    // 4. Fetch Engine Files — complete list of all required source files
+    // 4. Fetch Engine Files
+    this._log('info', '  Fetching engine files...');
     const engineFiles = [
-      // Engine core
       'src/engine/Component.js',
       'src/engine/Entity.js',
       'src/engine/Scene.js',
       'src/engine/AssetManager.js',
-      // Components
       'src/engine/components/Transform.js',
       'src/engine/components/MeshRenderer.js',
       'src/engine/components/Light.js',
@@ -83,14 +173,12 @@ export class Exporter {
       'src/engine/components/AnimationPlayer.js',
       'src/engine/components/InstancedMeshRenderer.js',
       'src/engine/components/Camera.js',
-      // Systems
       'src/engine/systems/PhysicsWorld.js',
       'src/engine/systems/AudioSystem.js',
       'src/engine/systems/UISystem.js',
       'src/engine/systems/TweenManager.js',
       'src/engine/systems/PostProcessManager.js',
       'src/engine/systems/EnvironmentSystem.js',
-      // Modeling
       'src/modeling/Modifier.js',
       'src/modeling/ProceduralMesh.js',
       'src/modeling/EditableMesh.js',
@@ -99,29 +187,63 @@ export class Exporter {
       'src/modeling/modifiers/Taper.js',
       'src/modeling/modifiers/Noise.js',
       'src/modeling/modifiers/Subdivide.js',
-      // Scripting
       'src/scripting/InputManager.js',
       'src/scripting/ScriptRuntime.js',
-      // Editor (serializer only, needed for scene loading)
       'src/editor/SceneSerializer.js',
     ];
 
+    let fetchedCount = 0;
     for (const filePath of engineFiles) {
       try {
         const res = await fetch('/' + filePath);
         if (res.ok) {
           const text = await res.text();
           zip.file(filePath, text);
+          fetchedCount++;
         } else {
-          console.warn('Failed to fetch engine file for export:', filePath);
+          this._log('warn', `  Missing engine file: ${filePath}`);
         }
       } catch (err) {
-        console.warn('Network error fetching:', filePath, err);
+        this._log('warn', `  Network error: ${filePath}`);
       }
     }
+    this._log('info', `  ${fetchedCount}/${engineFiles.length} engine files packed`);
 
     // 5. Generate Runtime main.js
-    const mainJs = [
+    this._log('info', '  Generating runtime...');
+    const mainJs = this._generateRuntimeScript();
+    zip.file('main.js', mainJs);
+
+    // 6. Generate Zip Blob with size report
+    this._log('info', '  Compressing ZIP...');
+    const content = await zip.generateAsync({ type: 'blob' });
+    
+    // Size report
+    const sizeMB = (content.size / (1024 * 1024)).toFixed(2);
+    const sizeKB = (content.size / 1024).toFixed(0);
+    this._log('info', `📊 Build size: ${sizeMB} MB (${sizeKB} KB)`);
+
+    if (warnings.length > 0) {
+      this._log('warn', `⚠ Export completed with ${warnings.length} warning(s)`);
+    }
+
+    // Download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    const safeName = this.scene.name.replace(/\s+/g, '_');
+    a.download = safeName + '_Build.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    
+    this._log('info', `✅ Export complete: ${safeName}_Build.zip`);
+  }
+
+  /**
+   * Generate the runtime main.js script content
+   * @returns {string}
+   */
+  _generateRuntimeScript() {
+    return [
       'import * as THREE from "three";',
       'import { Scene } from "./src/engine/Scene.js";',
       'import { SceneSerializer } from "./src/editor/SceneSerializer.js";',
@@ -146,7 +268,6 @@ export class Exporter {
       '    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;',
       '    this.renderer.toneMappingExposure = 1.2;',
       '    this.container.appendChild(this.renderer.domElement);',
-      '    // Create a fallback camera — will be overridden if a Camera entity exists',
       '    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);',
       '    this.camera.position.set(0, 5, 10);',
       '    this.camera.lookAt(0,0,0);',
@@ -158,61 +279,48 @@ export class Exporter {
       '        cam.updateProjectionMatrix();',
       '      }',
       '      this.renderer.setSize(window.innerWidth, window.innerHeight);',
+      '      if (this.postProcess) this.postProcess.resize(window.innerWidth, window.innerHeight);',
       '    });',
       '  }',
       '',
       '  async start() {',
-      '    // Load scene data',
       '    const res = await fetch("./data/scene.json");',
       '    const sceneData = await res.json();',
-      '',
-      '    // Create scene and deserialize',
       '    this.scene = new Scene(sceneData.name || "Game");',
       '    SceneSerializer.deserialize(sceneData, this.scene);',
       '',
-      '    // Initialize physics',
       '    this.physics = new PhysicsWorld();',
       '    await this.physics.init();',
-      '',
-      '    // Register physics bodies',
       '    this.scene.entityMap.forEach((entity) => {',
       '      if (entity.hasComponent("RigidBody") && entity.hasComponent("Collider")) {',
       '        this.physics.addBody(entity);',
       '      }',
       '    });',
       '',
-      '    // Initialize audio',
       '    this.assetManager = new AssetManager();',
       '    await this.assetManager.init();',
       '    this.audioSystem = new AudioSystem(this.scene, this.assetManager);',
       '    await this.audioSystem.init();',
       '',
-      '    // Initialize UI',
       '    this.uiSystem = new UISystem();',
       '    this.uiSystem.init(this.container);',
-      '',
-      '    // Initialize tween manager',
       '    this.tweenManager = new TweenManager();',
       '',
-      '    // Initialize input and scripts',
       '    this.inputManager = new InputManager(this.container);',
       '    this.scriptRuntime = new ScriptRuntime(this.scene, this.inputManager, this.physics, this.audioSystem, this.uiSystem, this.tweenManager);',
       '    this.scriptRuntime.onLog = (level, msg) => console.log("[" + level + "]", msg);',
       '    this.scriptRuntime.onError = (msg) => console.error(msg);',
       '    this.scriptRuntime.start();',
       '',
-      '    // Initialize post-processing (init first, then apply saved settings)',
       '    this.postProcess = new PostProcessManager();',
       '    const ppCamera = this.scriptRuntime.activeCamera || this.camera;',
       '    this.postProcess.init(this.renderer, this.scene.threeScene, ppCamera);',
       '    if (sceneData.postProcess) this.postProcess.deserialize(sceneData.postProcess);',
       '',
-      '    // Initialize environment (sky, fog)',
       '    this.environment = new EnvironmentSystem(this.scene.threeScene);',
       '    if (sceneData.environment) this.environment.deserialize(sceneData.environment);',
       '    else this.environment.apply();',
       '',
-      '    // Load GLB models',
       '    for (const [, entity] of this.scene.entityMap) {',
       '      if (entity.hasComponent("GLBModel")) {',
       '        const glb = entity.getComponent("GLBModel");',
@@ -223,17 +331,6 @@ export class Exporter {
       '    }',
       '',
       '    document.getElementById("loading").style.display = "none";',
-      '',
-      '    // Handle window resize',
-      '    window.addEventListener("resize", () => {',
-      '      const w = this.container.clientWidth;',
-      '      const h = this.container.clientHeight;',
-      '      this.camera.aspect = w / h;',
-      '      this.camera.updateProjectionMatrix();',
-      '      this.renderer.setSize(w, h);',
-      '      if (this.postProcess) this.postProcess.resize(w, h);',
-      '    });',
-      '',
       '    this.loop();',
       '  }',
       '',
@@ -242,11 +339,8 @@ export class Exporter {
       '    const now = performance.now();',
       '    const dt = Math.min((now - this.lastTime) / 1000, 0.05);',
       '    this.lastTime = now;',
-      '    if (this.physics && this.physics.initialized) {',
-      '      this.physics.step(dt);',
-      '    }',
+      '    if (this.physics && this.physics.initialized) this.physics.step(dt);',
       '    this.scriptRuntime.update(dt);',
-      '    // Update particle emitters',
       '    this.scene.entityMap.forEach((entity) => {',
       '      if (entity.hasComponent("ParticleEmitter")) {',
       '        const pe = entity.getComponent("ParticleEmitter");',
@@ -254,7 +348,6 @@ export class Exporter {
       '        pe.update(dt);',
       '      }',
       '    });',
-      '    // Update animators',
       '    this.scene.entityMap.forEach((entity) => {',
       '      if (entity.hasComponent("Animator")) entity.getComponent("Animator").update(dt);',
       '      if (entity.hasComponent("AnimationPlayer")) {',
@@ -264,9 +357,7 @@ export class Exporter {
       '      }',
       '      if (entity.hasComponent("GLBModel")) entity.getComponent("GLBModel").updateAnimation(dt);',
       '    });',
-      '    // Update tweens',
       '    if (this.tweenManager) this.tweenManager.update(dt);',
-      '    // Use Camera entity if available, fallback to default',
       '    const activeCam = this.scriptRuntime.activeCamera || this.camera;',
       '    if (activeCam.isPerspectiveCamera) {',
       '      activeCam.aspect = this.container.clientWidth / this.container.clientHeight;',
@@ -289,18 +380,102 @@ export class Exporter {
       '  document.getElementById("loading").textContent = "Error: " + err.message;',
       '});',
     ].join('\n');
+  }
 
-    zip.file('main.js', mainJs);
+  /**
+   * Open an in-browser preview of the game in a new tab (Phase 18-2)
+   * Generates a self-contained HTML blob and opens it
+   */
+  async preview() {
+    this._log('info', '🔍 Running pre-preview validation...');
+    const { warnings, errors } = this.validate();
+    for (const w of warnings) this._log('warn', `⚠ ${w}`);
+    for (const e of errors) this._log('error', `❌ ${e}`);
 
-    // Generate Zip Blob
-    const content = await zip.generateAsync({ type: 'blob' });
+    if (errors.length > 0) {
+      const proceed = confirm(
+        `${errors.length} error(s) found.\n\n` +
+        errors.join('\n') + '\n\nPreview anyway?'
+      );
+      if (!proceed) { this._log('info', 'Preview cancelled.'); return; }
+    }
 
-    // Download
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(content);
-    const safeName = this.scene.name.replace(/\s+/g, '_');
-    a.download = safeName + '_Build.zip';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    this._log('info', '🚀 Generating preview...');
+
+    // Serialize scene
+    const sceneData = SceneSerializer.serialize(this.scene);
+
+    // Collect assets as base64
+    const assetsMap = {};
+    for (const asset of this.assetManager.assets) {
+      const blob = await this.assetManager.getAssetBlob(asset.id);
+      if (blob) {
+        const reader = new FileReader();
+        const base64 = await new Promise((resolve) => {
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+        assetsMap[asset.id + '_' + asset.name] = base64;
+      }
+    }
+
+    // Generate runtime HTML
+    const runtimeJS = this._generateRuntimeScript();
+
+    // Build self-contained HTML
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${this.scene.name} — Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; }
+    #game-container { width: 100vw; height: 100vh; position: relative; }
+    #loading { position: absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-family:sans-serif; font-size:18px; }
+    #preview-bar {
+      position: fixed; top: 0; left: 0; right: 0; height: 28px; z-index: 10000;
+      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; font-family: sans-serif; font-size: 12px; color: #fff;
+    }
+    #preview-bar button { background: rgba(255,255,255,0.2); border: none; color: #fff; padding: 2px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    #preview-bar button:hover { background: rgba(255,255,255,0.3); }
+    #game-container { margin-top: 28px; height: calc(100vh - 28px); }
+  </style>
+</head>
+<body>
+  <div id="preview-bar">
+    <span>🎮 ${this.scene.name} — Preview Mode</span>
+    <div>
+      <button onclick="location.reload()">↻ Restart</button>
+      <button onclick="window.close()">✕ Close</button>
+    </div>
+  </div>
+  <div id="game-container">
+    <div id="loading">Loading...</div>
+  </div>
+  <script>
+    window.__SCENE_DATA__ = ${JSON.stringify(sceneData)};
+    window.__ASSETS_MAP__ = ${JSON.stringify(assetsMap)};
+  </script>
+  <script type="module">
+${runtimeJS}
+  </script>
+</body>
+</html>`;
+
+    // Create blob and open
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const newTab = window.open(url, '_blank');
+    if (newTab) {
+      this._log('info', '✅ Preview opened in new tab');
+      // Clean up blob after a delay
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } else {
+      this._log('error', 'Popup blocked! Please allow popups for this site.');
+    }
   }
 }

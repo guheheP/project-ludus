@@ -29,6 +29,9 @@ export class Inspector {
   /** @type {import('../../engine/systems/PostProcessManager.js').PostProcessManager|null} */
   postProcess = null;
 
+  /** @type {Map<string, boolean>} Remembers which sections are collapsed */
+  _collapsedSections = new Map();
+
   /** @type {Array<{target: EventTarget, event: string, handler: Function}>} */
   _windowListeners = [];
 
@@ -1866,92 +1869,36 @@ export class Inspector {
     setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
+  /** @type {Object<string, { path: string, cls: string, init?: (c: any) => void }>} */
+  static COMPONENT_REGISTRY = {
+    RigidBody:             { path: '../../engine/components/RigidBody.js', cls: 'RigidBody' },
+    Collider:              { path: '../../engine/components/Collider.js', cls: 'Collider', init: (c) => c.autoFit() },
+    Script:                { path: '../../engine/components/Script.js', cls: 'ScriptComponent' },
+    AudioListener:         { path: '../../engine/components/AudioListener.js', cls: 'AudioListener' },
+    AudioSource:           { path: '../../engine/components/AudioSource.js', cls: 'AudioSource' },
+    UICanvas:              { path: '../../engine/components/UICanvas.js', cls: 'UICanvas' },
+    ParticleEmitter:       { path: '../../engine/components/ParticleEmitter.js', cls: 'ParticleEmitter', init: (c) => { c.applyPreset('fire'); c.init(); } },
+    Animator:              { path: '../../engine/components/Animator.js', cls: 'Animator' },
+    AnimationPlayer:       { path: '../../engine/components/AnimationPlayer.js', cls: 'AnimationPlayer' },
+    Camera:                { path: '../../engine/components/Camera.js', cls: 'Camera' },
+    InstancedMeshRenderer: { path: '../../engine/components/InstancedMeshRenderer.js', cls: 'InstancedMeshRenderer' },
+  };
+
   _addComponentByType(type) {
     if (!this.entity) return;
+    const entry = Inspector.COMPONENT_REGISTRY[type];
+    if (!entry) { console.warn(`Unknown component type: ${type}`); return; }
 
-    if (type === 'RigidBody') {
-      // Dynamically import to avoid circular deps at module load
-      import('../../engine/components/RigidBody.js').then(({ RigidBody }) => {
-        const rb = new RigidBody();
-        this.entity.addComponent(rb);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'Collider') {
-      import('../../engine/components/Collider.js').then(({ Collider }) => {
-        const col = new Collider();
-        // Auto-fit if there's a mesh
-        this.entity.addComponent(col);
-        col.autoFit();
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'Script') {
-      import('../../engine/components/Script.js').then(({ ScriptComponent }) => {
-        const s = new ScriptComponent();
-        this.entity.addComponent(s);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'AudioListener') {
-      import('../../engine/components/AudioListener.js').then(({ AudioListener }) => {
-        const al = new AudioListener();
-        this.entity.addComponent(al);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'AudioSource') {
-      import('../../engine/components/AudioSource.js').then(({ AudioSource }) => {
-        const as = new AudioSource();
-        this.entity.addComponent(as);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'UICanvas') {
-      import('../../engine/components/UICanvas.js').then(({ UICanvas }) => {
-        const uc = new UICanvas();
-        this.entity.addComponent(uc);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'ParticleEmitter') {
-      import('../../engine/components/ParticleEmitter.js').then(({ ParticleEmitter }) => {
-        const pe = new ParticleEmitter();
-        pe.applyPreset('fire');
-        this.entity.addComponent(pe);
-        pe.init();
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'Animator') {
-      import('../../engine/components/Animator.js').then(({ Animator }) => {
-        const anim = new Animator();
-        this.entity.addComponent(anim);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'AnimationPlayer') {
-      import('../../engine/components/AnimationPlayer.js').then(({ AnimationPlayer }) => {
-        const ap = new AnimationPlayer();
-        this.entity.addComponent(ap);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'Camera') {
-      import('../../engine/components/Camera.js').then(({ Camera }) => {
-        const cam = new Camera();
-        this.entity.addComponent(cam);
-        this._emitChange();
-        this.refresh();
-      });
-    } else if (type === 'InstancedMeshRenderer') {
-      import('../../engine/components/InstancedMeshRenderer.js').then(({ InstancedMeshRenderer }) => {
-        const ir = new InstancedMeshRenderer();
-        this.entity.addComponent(ir);
-        this._emitChange();
-        this.refresh();
-      });
-    }
+    import(/* @vite-ignore */ entry.path).then((mod) => {
+      const Ctor = mod[entry.cls];
+      const comp = new Ctor();
+      this.entity.addComponent(comp);
+      if (entry.init) entry.init(comp);
+      this._emitChange();
+      this.refresh();
+    }).catch((err) => {
+      console.error(`Failed to load component ${type}:`, err);
+    });
   }
 
   // =============================================
@@ -1998,10 +1945,19 @@ export class Inspector {
     const body = document.createElement('div');
     body.className = 'component-body';
 
+    // Remember collapse state by title
+    const sectionKey = title;
+    if (this._collapsedSections.get(sectionKey)) {
+      toggle.classList.remove('open');
+      body.classList.add('collapsed');
+    }
+
     header.addEventListener('click', (e) => {
       if (e.target.classList.contains('component-delete-btn')) return;
       toggle.classList.toggle('open');
       body.classList.toggle('collapsed');
+      // Save state
+      this._collapsedSections.set(sectionKey, body.classList.contains('collapsed'));
     });
 
     section.appendChild(header);
@@ -2040,6 +1996,19 @@ export class Inspector {
       input.step = '0.1';
       input.addEventListener('change', (e) => {
         onChange(axis, parseFloat(e.target.value) || 0);
+      });
+      // Arrow key step for Vec3
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const step = 0.1;
+          const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+          const delta = (e.key === 'ArrowUp' ? 1 : -1) * step * mult;
+          let val = parseFloat(input.value) || 0;
+          val += delta;
+          input.value = val.toFixed(2);
+          onChange(axis, val);
+        }
       });
       this._addDragBehavior(input, 0.01, (newVal) => {
         input.value = newVal.toFixed(2);
@@ -2196,6 +2165,19 @@ export class Inspector {
       let val = parseFloat(e.target.value) || 0;
       val = Math.max(min, Math.min(max, val));
       onChange(val);
+    });
+
+    // Arrow key step increment/decrement
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+        const delta = (e.key === 'ArrowUp' ? 1 : -1) * step * mult;
+        let val = parseFloat(input.value) || 0;
+        val = Math.max(min, Math.min(max, val + delta));
+        input.value = val.toFixed(2);
+        onChange(val);
+      }
     });
 
     // Drag on input

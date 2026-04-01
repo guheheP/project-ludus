@@ -36,6 +36,9 @@ export class Toolbar {
   onExport = null;
 
   /** @type {Function|null} */
+  onPreview = null;
+
+  /** @type {Function|null} */
   onOpenProject = null;
 
   /** @type {Function|null} */
@@ -142,6 +145,7 @@ export class Toolbar {
     this._addButton(fileGroup, '💾', 'Save Scene (Ctrl+S)', 'save');
     this._addButton(fileGroup, '📂', 'Load Scene (Ctrl+O)', 'load');
     this._addButton(fileGroup, '📦', 'Export Game (.zip)', 'export');
+    this._addButton(fileGroup, '🚀', 'Preview (F8)', 'preview');
     this.container.appendChild(fileGroup);
 
     this._addSeparator();
@@ -244,6 +248,9 @@ export class Toolbar {
           break;
         case 'export':
           this.onExport?.();
+          break;
+        case 'preview':
+          this.onPreview?.();
           break;
         case 'open-project':
           this.onOpenProject?.();

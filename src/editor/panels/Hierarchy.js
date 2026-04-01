@@ -23,6 +23,12 @@ export class Hierarchy {
   /** @type {number|null} Entity ID being dragged */
   _dragEntityId = null;
 
+  /** @type {Set<number>} Hidden entity IDs (visibility toggled off) */
+  hiddenIds = new Set();
+
+  /** @type {Set<number>} Locked entity IDs (selection locked) */
+  lockedIds = new Set();
+
   /** @type {Set<number>} */
   expandedIds = new Set();
 
@@ -125,7 +131,42 @@ export class Hierarchy {
     const name = document.createElement('span');
     name.className = 'hierarchy-item-name';
     name.textContent = entity.name;
+    if (this.hiddenIds.has(entity.id)) {
+      name.style.opacity = '0.4';
+    }
     item.appendChild(name);
+
+    // Spacer to push action buttons right
+    const spacer = document.createElement('span');
+    spacer.style.flex = '1';
+    item.appendChild(spacer);
+
+    // Action buttons (not for root)
+    if (entity !== this.scene?.root) {
+      // Visibility toggle
+      const visBtn = document.createElement('span');
+      visBtn.className = 'hierarchy-action-btn';
+      visBtn.title = this.hiddenIds.has(entity.id) ? 'Show' : 'Hide';
+      visBtn.textContent = this.hiddenIds.has(entity.id) ? '👁‍🗨' : '👁';
+      if (this.hiddenIds.has(entity.id)) visBtn.style.opacity = '0.4';
+      visBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleVisibility(entity);
+      });
+      item.appendChild(visBtn);
+
+      // Lock toggle
+      const lockBtn = document.createElement('span');
+      lockBtn.className = 'hierarchy-action-btn';
+      lockBtn.title = this.lockedIds.has(entity.id) ? 'Unlock' : 'Lock';
+      lockBtn.textContent = this.lockedIds.has(entity.id) ? '🔒' : '🔓';
+      if (this.lockedIds.has(entity.id)) lockBtn.style.opacity = '1';
+      lockBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleLock(entity);
+      });
+      item.appendChild(lockBtn);
+    }
 
     // Click to select
     item.addEventListener('click', (e) => {
@@ -263,5 +304,42 @@ export class Hierarchy {
     if (entity.hasComponent('Script')) return '📝';
     if (entity.children.length > 0) return '📁';
     return '⬡';
+  }
+
+  /**
+   * Toggle visibility for an entity
+   * @param {import('../../engine/Entity.js').Entity} entity
+   */
+  _toggleVisibility(entity) {
+    if (this.hiddenIds.has(entity.id)) {
+      this.hiddenIds.delete(entity.id);
+      entity.object3D.visible = true;
+    } else {
+      this.hiddenIds.add(entity.id);
+      entity.object3D.visible = false;
+    }
+    this.refresh();
+  }
+
+  /**
+   * Toggle selection lock for an entity
+   * @param {import('../../engine/Entity.js').Entity} entity
+   */
+  _toggleLock(entity) {
+    if (this.lockedIds.has(entity.id)) {
+      this.lockedIds.delete(entity.id);
+    } else {
+      this.lockedIds.add(entity.id);
+    }
+    this.refresh();
+  }
+
+  /**
+   * Check if an entity is locked (selection prevented)
+   * @param {number} entityId
+   * @returns {boolean}
+   */
+  isLocked(entityId) {
+    return this.lockedIds.has(entityId);
   }
 }
