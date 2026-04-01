@@ -44,6 +44,7 @@ import { RemoveComponentCommand } from './commands/ComponentCommands.js';
 import { ReparentCommand } from './commands/ReparentCommand.js';
 import { VertexTransformCommand } from './commands/VertexTransformCommand.js';
 import { EnvironmentSystem } from '../engine/systems/EnvironmentSystem.js';
+import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 
 const THREE_REVISION = THREE.REVISION;
 
@@ -56,6 +57,24 @@ export class Editor {
 
   /** @type {SceneView} */
   sceneView;
+
+  /** @type {Set<string>} Active console filter levels */
+  _consoleFilters = new Set(['info', 'warn', 'error']);
+
+  /** @type {number} Total log count */
+  _consoleLogCount = 0;
+
+  /** @type {object|null} Clipboard for entity copy */
+  _entityClipboard = null;
+
+  /** @type {number|null} Auto-save interval ID */
+  _autoSaveTimer = null;
+
+  /** @type {number} Auto-save interval in ms (60 seconds) */
+  _autoSaveInterval = 60000;
+
+  /** @type {boolean} Whether a recovery snapshot was applied */
+  _recoveryApplied = false;
 
   /** @type {Hierarchy} */
   hierarchy;
@@ -286,6 +305,9 @@ export class Editor {
     // Keyboard shortcuts
     this._initKeyboardShortcuts();
 
+    // Console controls (filter, clear)
+    this._initConsoleControls();
+
     // Create default scene
     this._createDefaultScene();
 
@@ -299,6 +321,11 @@ export class Editor {
     this._log('info', 'Project Ludus Editor initialized');
     this._log('info', 'Three.js r' + THREE_REVISION);
     this._log('info', 'Procedural modeling & scripting ready');
+
+    // Auto-save & recovery (async, after init)
+    this._checkRecovery().then(() => {
+      this._initAutoSave();
+    });
   }
 
   async _initPhysics() {
@@ -361,11 +388,11 @@ export class Editor {
     });
 
     // Show/hide content
-    const consoleOutput = document.getElementById('console-output');
+    const consoleWrapper = document.getElementById('console-wrapper');
     const scriptEditor = document.getElementById('script-editor-content');
     const projectContent = document.getElementById('project-content');
 
-    if (consoleOutput) consoleOutput.style.display = tabName === 'console' ? 'block' : 'none';
+    if (consoleWrapper) consoleWrapper.style.display = tabName === 'console' ? 'flex' : 'none';
     if (scriptEditor) {
       scriptEditor.style.display = tabName === 'script' ? 'flex' : 'none';
       if (tabName === 'script') {
@@ -1126,6 +1153,21 @@ function update(dt) {
             this._duplicateSelected();
           }
           break;
+        case 'c':
+          if (e.ctrlKey || e.metaKey) {
+            if (this.selectedEntity && this.selectedEntity !== this.scene.root) {
+              this._copyEntity();
+            }
+          }
+          break;
+        case 'v':
+          if (e.ctrlKey || e.metaKey) {
+            if (this._entityClipboard) {
+              e.preventDefault();
+              this._pasteEntity();
+            }
+          }
+          break;
         case 'f':
           if (this.selectedEntity) {
             this.sceneView.focusOn(this.selectedEntity);
@@ -1656,6 +1698,101 @@ function update(dt) {
   }
 
   // =============================================
+  // Auto-save & Recovery
+  // =============================================
+
+  /**
+   * Start the auto-save timer
+   */
+  _initAutoSave() {
+    if (this._autoSaveTimer) clearInterval(this._autoSaveTimer);
+    this._autoSaveTimer = setInterval(() => {
+      if (this.mode !== 'edit') return; // Don't auto-save during play
+      this._autoSaveSnapshot();
+    }, this._autoSaveInterval);
+  }
+
+  /**
+   * Save a recovery snapshot to IndexedDB
+   */
+  async _autoSaveSnapshot() {
+    try {
+      const sceneData = SceneSerializer.serialize(this.scene);
+      const snapshot = {
+        scene: sceneData,
+        timestamp: Date.now(),
+        sceneName: this.scene.name,
+      };
+      // Save environment settings
+      if (this.environment) {
+        snapshot.environment = this.environment.serialize();
+      }
+      // Save post-process settings
+      if (this.postProcess) {
+        snapshot.postProcess = this.postProcess.serialize();
+      }
+      await idbSet('ludus-autosave', snapshot);
+    } catch (err) {
+      console.warn('Auto-save failed:', err);
+    }
+  }
+
+  /**
+   * Check for a recovery snapshot on startup
+   */
+  async _checkRecovery() {
+    try {
+      const snapshot = await idbGet('ludus-autosave');
+      if (!snapshot || !snapshot.scene) return;
+
+      const age = Date.now() - (snapshot.timestamp || 0);
+      const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+      if (age > maxAge) {
+        await idbDel('ludus-autosave');
+        return;
+      }
+
+      const when = new Date(snapshot.timestamp).toLocaleString();
+      const sceneName = snapshot.sceneName || 'Unknown';
+      const shouldRestore = confirm(
+        `前回のセッション (${sceneName}) の自動バックアップが見つかりました。\n` +
+        `保存日時: ${when}\n\n` +
+        `復元しますか？\n` +
+        `(「キャンセル」を押すと新規シーンで開始します)`
+      );
+
+      if (shouldRestore) {
+        SceneSerializer.deserialize(snapshot.scene, this.scene);
+        if (snapshot.environment && this.environment) {
+          this.environment.deserialize(snapshot.environment);
+        }
+        if (snapshot.postProcess && this.postProcess) {
+          this.postProcess.deserialize(snapshot.postProcess);
+        }
+        this.selectEntity(null);
+        this.hierarchy.refresh();
+        this._recoveryApplied = true;
+        this._log('info', '✅ Auto-save snapshot restored');
+      } else {
+        await idbDel('ludus-autosave');
+      }
+    } catch (err) {
+      console.warn('Recovery check failed:', err);
+    }
+  }
+
+  /**
+   * Clear the auto-save snapshot (e.g., after explicit save)
+   */
+  async _clearAutoSave() {
+    try {
+      await idbDel('ludus-autosave');
+    } catch (err) {
+      // Silently ignore
+    }
+  }
+
+  // =============================================
   // Render loop
   // =============================================
 
@@ -1816,6 +1953,12 @@ function update(dt) {
 
     const line = document.createElement('div');
     line.className = 'console-line';
+    line.dataset.level = level;
+
+    // Apply filter visibility
+    if (!this._consoleFilters.has(level)) {
+      line.classList.add('console-hidden');
+    }
 
     const time = document.createElement('span');
     time.className = 'console-line-time';
@@ -1829,7 +1972,94 @@ function update(dt) {
     line.appendChild(msg);
 
     output.appendChild(line);
-    output.scrollTop = output.scrollHeight;
+
+    // Update count
+    this._consoleLogCount++;
+    const countEl = document.getElementById('console-count');
+    if (countEl) countEl.textContent = this._consoleLogCount;
+
+    // Auto-scroll only if already near bottom
+    const isNearBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 60;
+    if (isNearBottom) {
+      output.scrollTop = output.scrollHeight;
+    }
+  }
+
+  /**
+   * Initialize console toolbar controls (filter buttons, clear)
+   */
+  _initConsoleControls() {
+    // Filter buttons
+    const filterBtns = document.querySelectorAll('.console-filter-btn');
+    filterBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const level = btn.dataset.level;
+        btn.classList.toggle('active');
+        if (this._consoleFilters.has(level)) {
+          this._consoleFilters.delete(level);
+        } else {
+          this._consoleFilters.add(level);
+        }
+        this._applyConsoleFilters();
+      });
+    });
+
+    // Clear button
+    const clearBtn = document.getElementById('console-clear-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        const output = document.getElementById('console-output');
+        if (output) output.innerHTML = '';
+        this._consoleLogCount = 0;
+        const countEl = document.getElementById('console-count');
+        if (countEl) countEl.textContent = '0';
+      });
+    }
+  }
+
+  /**
+   * Re-apply console filters to all existing lines
+   */
+  _applyConsoleFilters() {
+    const output = document.getElementById('console-output');
+    if (!output) return;
+    const lines = output.querySelectorAll('.console-line');
+    lines.forEach(line => {
+      const level = line.dataset.level;
+      if (this._consoleFilters.has(level)) {
+        line.classList.remove('console-hidden');
+      } else {
+        line.classList.add('console-hidden');
+      }
+    });
+  }
+
+  /**
+   * Copy selected entity to clipboard (serialized)
+   */
+  _copyEntity() {
+    if (!this.selectedEntity || this.selectedEntity === this.scene.root) return;
+    this._entityClipboard = SceneSerializer.serializeEntity(this.selectedEntity);
+    this._log('info', `📋 Copied: ${this.selectedEntity.name}`);
+  }
+
+  /**
+   * Paste entity from clipboard
+   */
+  _pasteEntity() {
+    if (!this._entityClipboard) return;
+    const parent = this.selectedEntity && this.selectedEntity !== this.scene.root
+      ? this.selectedEntity.parent || this.scene.root
+      : this.scene.root;
+    const entity = SceneSerializer.deserializeEntity(this._entityClipboard, this.scene, parent);
+    if (entity) {
+      // Auto-rename to avoid confusion
+      entity.name = entity.name + ' (Copy)';
+      this.hierarchy.refresh();
+      this.selectEntity(entity);
+      this._markProjectDirty();
+      this._log('info', `📋 Pasted: ${entity.name}`);
+    }
   }
 
   /**
@@ -1839,6 +2069,11 @@ function update(dt) {
   dispose() {
     if (this.mode !== 'edit') {
       this._stop();
+    }
+    // Clear auto-save timer
+    if (this._autoSaveTimer) {
+      clearInterval(this._autoSaveTimer);
+      this._autoSaveTimer = null;
     }
     if (this.inputManager) {
       this.inputManager.dispose();

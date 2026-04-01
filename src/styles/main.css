@@ -424,6 +424,79 @@ html, body {
 }
 
 /* Console */
+#console-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#console-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.console-filter-btn {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-main);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  opacity: 0.5;
+}
+
+.console-filter-btn.active {
+  opacity: 1;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.console-filter-btn:hover {
+  opacity: 0.85;
+  background: var(--bg-hover);
+}
+
+.console-spacer {
+  flex: 1;
+}
+
+.console-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+
+.console-clear-btn {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-main);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.console-clear-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 #console-output {
   padding: 6px 10px;
   font-family: var(--font-mono);
@@ -433,12 +506,18 @@ html, body {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .console-line {
   display: flex;
   gap: 8px;
   padding: 1px 0;
+}
+
+.console-line.console-hidden {
+  display: none;
 }
 
 .console-line-time {

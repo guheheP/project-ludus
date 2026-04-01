@@ -52,7 +52,17 @@
         <button class="panel-tab" data-tab="project">Project</button>
       </div>
       <div class="panel-content" id="bottom-content">
-        <div id="console-output"></div>
+        <div id="console-wrapper">
+          <div id="console-toolbar">
+            <button class="console-filter-btn active" data-level="info" title="Info messages">ℹ Info</button>
+            <button class="console-filter-btn active" data-level="warn" title="Warnings">⚠ Warn</button>
+            <button class="console-filter-btn active" data-level="error" title="Errors">❌ Error</button>
+            <span class="console-spacer"></span>
+            <span id="console-count" class="console-count">0</span>
+            <button id="console-clear-btn" class="console-clear-btn" title="Clear console">🗑 Clear</button>
+          </div>
+          <div id="console-output"></div>
+        </div>
         <div id="script-editor-content" style="display:none; flex-direction:column; height:100%;"></div>
         <div id="timeline-content" style="display:none; flex-direction:column; height:100%;"></div>
         <div id="project-content" style="display:none; flex-direction:column; height:100%;"></div>
