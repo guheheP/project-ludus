@@ -1,3 +1,5 @@
+import { createIcon } from '../utils/Icon.js';
+
 /**
  * Toolbar — Top menu bar with tools and play controls
  */
@@ -70,14 +72,14 @@ export class Toolbar {
     // Title
     const title = document.createElement('span');
     title.className = 'toolbar-title';
-    title.textContent = '⬡ Project Ludus';
+    title.textContent = 'Project Ludus';
     this.container.appendChild(title);
 
     // Transform tools
     const transformGroup = this._createGroup();
-    this.btnTranslate = this._addButton(transformGroup, '⊞', 'Move (W)', 'translate', true);
-    this.btnRotate = this._addButton(transformGroup, '↻', 'Rotate (E)', 'rotate');
-    this.btnScale = this._addButton(transformGroup, '⤡', 'Scale (R)', 'scale');
+    this.btnTranslate = this._addButton(transformGroup, 'translate', 'Move (W)', 'translate', true);
+    this.btnRotate = this._addButton(transformGroup, 'rotate', 'Rotate (E)', 'rotate');
+    this.btnScale = this._addButton(transformGroup, 'scale', 'Scale (R)', 'scale');
     
     // Add small separator inside group
     const inlineSep = document.createElement('div');
@@ -85,21 +87,16 @@ export class Toolbar {
     transformGroup.appendChild(inlineSep);
     
     
-    this.btnVertexEdit = this._addButton(transformGroup, '📌', 'Vertex Edit (V)', 'vertex-edit');
+    this.btnVertexEdit = this._addButton(transformGroup, 'vertex-edit', 'Vertex Edit (V)', 'vertex-edit');
     
     // Symmetry buttons
     const symSep = document.createElement('div');
     symSep.style.cssText = 'width:1px; height:16px; background:var(--border); margin:0 4px; display:inline-block; vertical-align:middle;';
     transformGroup.appendChild(symSep);
     
-    this.btnSymX = this._addButton(transformGroup, '▶◀X', 'X Symmetry', 'sym-x');
-    this.btnSymY = this._addButton(transformGroup, '▼▲Y', 'Y Symmetry', 'sym-y');
-    this.btnSymZ = this._addButton(transformGroup, '◆◇Z', 'Z Symmetry', 'sym-z');
-    
-    // Style symmetry text slightly smaller
-    this.btnSymX.style.fontSize = '12px';
-    this.btnSymY.style.fontSize = '12px';
-    this.btnSymZ.style.fontSize = '12px';
+    this.btnSymX = this._addButton(transformGroup, 'sym-x', 'X Symmetry', 'sym-x');
+    this.btnSymY = this._addButton(transformGroup, 'sym-y', 'Y Symmetry', 'sym-y');
+    this.btnSymZ = this._addButton(transformGroup, 'sym-z', 'Z Symmetry', 'sym-z');
 
     this.container.appendChild(transformGroup);
 
@@ -107,45 +104,45 @@ export class Toolbar {
 
     // Snap toggle
     const snapGroup = this._createGroup();
-    this.btnSnap = this._addButton(snapGroup, '⊡', 'Snap (G)', 'snap');
+    this.btnSnap = this._addButton(snapGroup, 'snap', 'Snap (G)', 'snap');
     this.container.appendChild(snapGroup);
 
     this._addSeparator();
 
     // Add objects
     const addGroup = this._createGroup();
-    this._addButton(addGroup, '⬜', 'Cube', 'add-box');
-    this._addButton(addGroup, '⬤', 'Sphere', 'add-sphere');
-    this._addButton(addGroup, '▣', 'Cylinder', 'add-cylinder');
-    this._addButton(addGroup, '◇', 'Cone', 'add-cone');
-    this._addButton(addGroup, '◎', 'Torus', 'add-torus');
-    this._addButton(addGroup, '▬', 'Plane', 'add-plane');
+    this._addButton(addGroup, 'add-box', 'Cube', 'add-box');
+    this._addButton(addGroup, 'add-sphere', 'Sphere', 'add-sphere');
+    this._addButton(addGroup, 'add-cylinder', 'Cylinder', 'add-cylinder');
+    this._addButton(addGroup, 'add-cone', 'Cone', 'add-cone');
+    this._addButton(addGroup, 'add-torus', 'Torus', 'add-torus');
+    this._addButton(addGroup, 'add-plane', 'Plane', 'add-plane');
     this.container.appendChild(addGroup);
 
     this._addSeparator();
 
     // Lighting
     const lightGroup = this._createGroup();
-    this._addButton(lightGroup, '☀️', 'Dir Light', 'add-dirlight');
-    this._addButton(lightGroup, '💡', 'Point Light', 'add-pointlight');
-    this._addButton(lightGroup, '🎥', 'Camera', 'add-camera');
+    this._addButton(lightGroup, 'add-dirlight', 'Dir Light', 'add-dirlight');
+    this._addButton(lightGroup, 'add-pointlight', 'Point Light', 'add-pointlight');
+    this._addButton(lightGroup, 'add-camera', 'Camera', 'add-camera');
     this.container.appendChild(lightGroup);
 
     this._addSeparator();
 
     // Effects
     const fxGroup = this._createGroup();
-    this._addButton(fxGroup, '✨', 'Particle Emitter', 'add-particle');
+    this._addButton(fxGroup, 'add-particle', 'Particle Emitter', 'add-particle');
     this.container.appendChild(fxGroup);
 
     this._addSeparator();
 
     // File operations
     const fileGroup = this._createGroup();
-    this._addButton(fileGroup, '💾', 'Save Scene (Ctrl+S)', 'save');
-    this._addButton(fileGroup, '📂', 'Load Scene (Ctrl+O)', 'load');
-    this._addButton(fileGroup, '📦', 'Export Game (.zip)', 'export');
-    this._addButton(fileGroup, '🚀', 'Preview (F8)', 'preview');
+    this._addButton(fileGroup, 'save', 'Save Scene (Ctrl+S)', 'save');
+    this._addButton(fileGroup, 'load', 'Load Scene (Ctrl+O)', 'load');
+    this._addButton(fileGroup, 'export', 'Export Game (.zip)', 'export');
+    this._addButton(fileGroup, 'preview', 'Preview (F8)', 'preview');
     this.container.appendChild(fileGroup);
 
     this._addSeparator();
@@ -163,8 +160,8 @@ export class Toolbar {
 
     // Undo/Redo
     const undoGroup = this._createGroup();
-    this.btnUndo = this._addButton(undoGroup, '↩', 'Undo (Ctrl+Z)', 'undo');
-    this.btnRedo = this._addButton(undoGroup, '↪', 'Redo (Ctrl+Y)', 'redo');
+    this.btnUndo = this._addButton(undoGroup, 'undo', 'Undo (Ctrl+Z)', 'undo');
+    this.btnRedo = this._addButton(undoGroup, 'redo', 'Redo (Ctrl+Y)', 'redo');
     this.btnUndo.classList.add('disabled');
     this.btnRedo.classList.add('disabled');
     this.container.appendChild(undoGroup);
@@ -172,9 +169,9 @@ export class Toolbar {
     // Play controls (centered)
     const playGroup = document.createElement('div');
     playGroup.className = 'toolbar-play-group';
-    this.btnPlay = this._addPlayButton(playGroup, '▶', 'Play');
-    this.btnPause = this._addPlayButton(playGroup, '⏸', 'Pause');
-    this.btnStop = this._addPlayButton(playGroup, '⏹', 'Stop');
+    this.btnPlay = this._addPlayButton(playGroup, 'play', 'Play');
+    this.btnPause = this._addPlayButton(playGroup, 'pause', 'Pause');
+    this.btnStop = this._addPlayButton(playGroup, 'stop', 'Stop');
     this.container.appendChild(playGroup);
 
     // Bind click events
@@ -271,7 +268,7 @@ export class Toolbar {
     return group;
   }
 
-  _addButton(group, icon, tooltip, action, active = false) {
+  _addButton(group, iconName, tooltip, action, active = false) {
     const btn = document.createElement('button');
     btn.className = 'toolbar-btn' + (active ? ' active' : '');
     btn.title = tooltip;
@@ -279,18 +276,18 @@ export class Toolbar {
 
     const iconSpan = document.createElement('span');
     iconSpan.className = 'toolbar-btn-icon';
-    iconSpan.textContent = icon;
+    iconSpan.appendChild(createIcon(iconName));
     btn.appendChild(iconSpan);
 
     group.appendChild(btn);
     return btn;
   }
 
-  _addPlayButton(group, icon, tooltip) {
+  _addPlayButton(group, iconName, tooltip) {
     const btn = document.createElement('button');
     btn.className = 'toolbar-play-btn';
     btn.title = tooltip;
-    btn.textContent = icon;
+    btn.appendChild(createIcon(iconName, { width: 14, height: 14 }));
     group.appendChild(btn);
     return btn;
   }

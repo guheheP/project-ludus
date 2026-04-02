@@ -15,6 +15,7 @@
     "@dimforge/rapier3d-compat": "^0.19.3",
     "idb-keyval": "^6.2.2",
     "jszip": "^3.10.1",
+    "lucide": "^1.7.0",
     "monaco-editor": "^0.55.1",
     "three": "^0.183.2"
   }

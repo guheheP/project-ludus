@@ -37,7 +37,13 @@ export class ContextMenu {
       if (item.icon) {
         const icon = document.createElement('span');
         icon.className = 'context-menu-item-icon';
-        icon.textContent = item.icon;
+        if (typeof item.icon === 'string') {
+          icon.textContent = item.icon;
+        } else {
+          icon.appendChild(item.icon);
+          icon.style.display = 'flex';
+          icon.style.alignItems = 'center';
+        }
         menuItem.appendChild(icon);
       }
 

@@ -1,3 +1,5 @@
+import { createIcon } from '../utils/Icon.js';
+
 /**
  * Hierarchy Panel — Tree view of all entities in the scene
  */
@@ -124,7 +126,9 @@ export class Hierarchy {
     // Icon
     const icon = document.createElement('span');
     icon.className = 'hierarchy-item-icon';
-    icon.textContent = this._getEntityIcon(entity);
+    icon.appendChild(createIcon(this._getEntityIcon(entity), { width: 14, height: 14, color: 'var(--text-secondary)' }));
+    icon.style.display = 'flex';
+    icon.style.alignItems = 'center';
     item.appendChild(icon);
 
     // Name
@@ -147,7 +151,7 @@ export class Hierarchy {
       const visBtn = document.createElement('span');
       visBtn.className = 'hierarchy-action-btn';
       visBtn.title = this.hiddenIds.has(entity.id) ? 'Show' : 'Hide';
-      visBtn.textContent = this.hiddenIds.has(entity.id) ? '👁‍🗨' : '👁';
+      visBtn.appendChild(createIcon(this.hiddenIds.has(entity.id) ? 'eye-off' : 'eye', { width: 14, height: 14 }));
       if (this.hiddenIds.has(entity.id)) visBtn.style.opacity = '0.4';
       visBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -159,7 +163,7 @@ export class Hierarchy {
       const lockBtn = document.createElement('span');
       lockBtn.className = 'hierarchy-action-btn';
       lockBtn.title = this.lockedIds.has(entity.id) ? 'Unlock' : 'Lock';
-      lockBtn.textContent = this.lockedIds.has(entity.id) ? '🔒' : '🔓';
+      lockBtn.appendChild(createIcon(this.lockedIds.has(entity.id) ? 'lock' : 'unlock', { width: 14, height: 14 }));
       if (this.lockedIds.has(entity.id)) lockBtn.style.opacity = '1';
       lockBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -285,25 +289,25 @@ export class Hierarchy {
   _getEntityIcon(entity) {
     if (entity.hasComponent('Light')) {
       const light = entity.getComponent('Light');
-      if (light.lightType === 'directional') return '☀️';
-      if (light.lightType === 'point') return '💡';
-      if (light.lightType === 'spot') return '🔦';
-      return '💡';
+      if (light.lightType === 'directional') return 'add-dirlight';
+      if (light.lightType === 'point') return 'add-pointlight';
+      if (light.lightType === 'spot') return 'add-pointlight';
+      return 'add-pointlight';
     }
-    if (entity.hasComponent('Camera')) return '🎥';
-    if (entity.hasComponent('AnimationPlayer')) return '🎞️';
-    if (entity.hasComponent('ParticleEmitter')) return '✨';
-    if (entity.hasComponent('Animator')) return '🎬';
-    if (entity.hasComponent('GLBModel')) return '🏗️';
-    if (entity.hasComponent('InstancedMeshRenderer')) return '🧱';
-    if (entity.hasComponent('RigidBody') && entity.hasComponent('ProceduralMesh')) return '⚛️';
-    if (entity.hasComponent('Script') && entity.hasComponent('ProceduralMesh')) return '📝';
-    if (entity.hasComponent('ProceduralMesh')) return '🔷';
-    if (entity.hasComponent('MeshRenderer')) return '📦';
-    if (entity.hasComponent('RigidBody')) return '⚛️';
-    if (entity.hasComponent('Script')) return '📝';
-    if (entity.children.length > 0) return '📁';
-    return '⬡';
+    if (entity.hasComponent('Camera')) return 'Camera';
+    if (entity.hasComponent('AnimationPlayer')) return 'AnimationPlayer';
+    if (entity.hasComponent('ParticleEmitter')) return 'ParticleEmitter';
+    if (entity.hasComponent('Animator')) return 'Animator';
+    if (entity.hasComponent('GLBModel')) return 'add-box';
+    if (entity.hasComponent('InstancedMeshRenderer')) return 'InstancedMeshRenderer';
+    if (entity.hasComponent('RigidBody') && entity.hasComponent('ProceduralMesh')) return 'RigidBody';
+    if (entity.hasComponent('Script') && entity.hasComponent('ProceduralMesh')) return 'Script';
+    if (entity.hasComponent('ProceduralMesh')) return 'ProceduralMesh';
+    if (entity.hasComponent('MeshRenderer')) return 'add-box';
+    if (entity.hasComponent('RigidBody')) return 'RigidBody';
+    if (entity.hasComponent('Script')) return 'Script';
+    if (entity.children.length > 0) return 'folder';
+    return 'add-box';
   }
 
   /**

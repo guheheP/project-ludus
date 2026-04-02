@@ -47,6 +47,7 @@ import { EnvironmentSystem } from '../engine/systems/EnvironmentSystem.js';
 import { ShortcutManager } from './ShortcutManager.js';
 import { EntityFactory } from './EntityFactory.js';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
+import { createIcon } from './utils/Icon.js';
 
 const THREE_REVISION = THREE.REVISION;
 
@@ -1321,41 +1322,42 @@ function update(dt) {
 
   _showHierarchyContextMenu(x, y, entity) {
     const items = [];
+    const iconProps = { width: 14, height: 14, color: 'var(--text-secondary)' };
 
-    items.push({ label: 'Add Cube', icon: '⬜', action: () => this._addEntity('box') });
-    items.push({ label: 'Add Sphere', icon: '⬤', action: () => this._addEntity('sphere') });
-    items.push({ label: 'Add Cylinder', icon: '▣', action: () => this._addEntity('cylinder') });
-    items.push({ label: 'Add Cone', icon: '◇', action: () => this._addEntity('cone') });
-    items.push({ label: 'Add Torus', icon: '◎', action: () => this._addEntity('torus') });
-    items.push({ label: 'Add Plane', icon: '▬', action: () => this._addEntity('plane') });
-    items.push({ label: 'Add Capsule', icon: '💊', action: () => this._addEntity('capsule') });
+    items.push({ label: 'Add Cube', icon: createIcon('add-box', iconProps), action: () => this._addEntity('box') });
+    items.push({ label: 'Add Sphere', icon: createIcon('add-sphere', iconProps), action: () => this._addEntity('sphere') });
+    items.push({ label: 'Add Cylinder', icon: createIcon('add-cylinder', iconProps), action: () => this._addEntity('cylinder') });
+    items.push({ label: 'Add Cone', icon: createIcon('add-cone', iconProps), action: () => this._addEntity('cone') });
+    items.push({ label: 'Add Torus', icon: createIcon('add-torus', iconProps), action: () => this._addEntity('torus') });
+    items.push({ label: 'Add Plane', icon: createIcon('add-plane', iconProps), action: () => this._addEntity('plane') });
+    items.push({ label: 'Add Capsule', icon: createIcon('add-capsule', iconProps), action: () => this._addEntity('capsule') });
     items.push({ separator: true });
-    items.push({ label: 'Add Dir Light', icon: '☀️', action: () => this._addEntity('directional-light') });
-    items.push({ label: 'Add Point Light', icon: '💡', action: () => this._addEntity('point-light') });
-    items.push({ label: 'Add Camera', icon: '🎥', action: () => this._addEntity('camera') });
-    items.push({ label: 'Add Particles', icon: '✨', action: () => this._addEntity('particle') });
+    items.push({ label: 'Add Dir Light', icon: createIcon('add-dirlight', iconProps), action: () => this._addEntity('directional-light') });
+    items.push({ label: 'Add Point Light', icon: createIcon('add-pointlight', iconProps), action: () => this._addEntity('point-light') });
+    items.push({ label: 'Add Camera', icon: createIcon('Camera', iconProps), action: () => this._addEntity('camera') });
+    items.push({ label: 'Add Particles', icon: createIcon('ParticleEmitter', iconProps), action: () => this._addEntity('particle') });
 
     if (entity && entity !== this.scene.root) {
       items.push({ separator: true });
-      items.push({ label: 'Add Script', icon: '📝', action: () => {
+      items.push({ label: 'Add Script', icon: createIcon('Script', iconProps), action: () => {
         this.selectEntity(entity);
         this._addScriptToSelected();
       }});
-      items.push({ label: 'Duplicate', icon: '📋', action: () => {
+      items.push({ label: 'Duplicate', icon: createIcon('action-duplicate', iconProps), action: () => {
         this.selectEntity(entity);
         this._duplicateSelected();
       }, shortcut: 'Ctrl+D' });
-      items.push({ label: 'Delete', icon: '🗑️', action: () => {
+      items.push({ label: 'Delete', icon: createIcon('action-delete', { ...iconProps, color: 'var(--danger)' }), action: () => {
         this.selectEntity(entity);
         this._deleteSelected();
       }, shortcut: 'Del' });
       items.push({ separator: true });
-      items.push({ label: 'Focus', icon: '🎯', action: () => {
+      items.push({ label: 'Focus', icon: createIcon('action-focus', iconProps), action: () => {
         this.selectEntity(entity);
         this.sceneView.focusOn(entity);
       }, shortcut: 'F' });
       if (this.projectManager.isOpen) {
-        items.push({ label: 'Save as Prefab', icon: '📦', action: () => {
+        items.push({ label: 'Save as Prefab', icon: createIcon('GLBModel', iconProps), action: () => {
           this._saveEntityAsPrefab(entity);
         }});
       }

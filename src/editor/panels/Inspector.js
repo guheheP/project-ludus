@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createIcon } from '../utils/Icon.js';
 import { GEOMETRY_TYPES } from '../../engine/components/MeshRenderer.js';
 import { MODIFIER_TYPES, SHAPE_PARAMS } from '../../modeling/ProceduralMesh.js';
 import { EditableMesh } from '../../modeling/EditableMesh.js';
@@ -167,8 +168,9 @@ export class Inspector {
     div.className = 'inspector-entity-name';
 
     const icon = document.createElement('span');
-    icon.textContent = '📦';
-    icon.style.fontSize = '18px';
+    icon.appendChild(createIcon('add-box'));
+    icon.style.display = 'flex';
+    icon.style.alignItems = 'center';
     div.appendChild(icon);
 
     const input = document.createElement('input');
@@ -224,7 +226,7 @@ export class Inspector {
 
   _renderTransform() {
     const transform = this.entity.getComponent('Transform');
-    const section = this._createSection('⊞', 'Transform', 'Transform');
+    const section = this._createSection('Transform', 'Transform', 'Transform');
     const body = section.querySelector('.component-body');
 
     body.appendChild(this._createVec3Row('Position',
@@ -253,7 +255,7 @@ export class Inspector {
 
   _renderProceduralMesh() {
     const pm = this.entity.getComponent('ProceduralMesh');
-    const section = this._createSection('🔷', 'Procedural Mesh', 'ProceduralMesh');
+    const section = this._createSection('ProceduralMesh', 'Procedural Mesh', 'ProceduralMesh');
     const body = section.querySelector('.component-body');
 
     // Shape type
@@ -567,7 +569,7 @@ export class Inspector {
 
   _renderEditableMesh() {
     const em = this.entity.getComponent('EditableMesh');
-    const section = this._createSection('🔷', 'Editable Mesh', 'EditableMesh');
+    const section = this._createSection('EditableMesh', 'Editable Mesh', 'EditableMesh');
     const body = section.querySelector('.component-body');
 
     // Stats
@@ -662,7 +664,7 @@ export class Inspector {
 
   _renderMeshRenderer() {
     const mr = this.entity.getComponent('MeshRenderer');
-    const section = this._createSection('🔷', 'Mesh Renderer', 'MeshRenderer');
+    const section = this._createSection('MeshRenderer', 'Mesh Renderer', 'MeshRenderer');
     const body = section.querySelector('.component-body');
 
     body.appendChild(this._createSelectRow('Shape', mr.geometryType,
@@ -758,7 +760,7 @@ export class Inspector {
 
   _renderLight() {
     const light = this.entity.getComponent('Light');
-    const section = this._createSection('💡', 'Light', 'Light');
+    const section = this._createSection('Light', 'Light', 'Light');
     const body = section.querySelector('.component-body');
 
     body.appendChild(this._createSelectRow('Type', light.lightType,
@@ -852,7 +854,7 @@ export class Inspector {
 
   _renderScript() {
     const script = this.entity.getComponent('Script');
-    const section = this._createSection('📝', 'Script', 'Script');
+    const section = this._createSection('Script', 'Script', 'Script');
     const body = section.querySelector('.component-body');
 
     // Filename
@@ -953,7 +955,7 @@ export class Inspector {
 
   _renderRigidBody() {
     const rb = this.entity.getComponent('RigidBody');
-    const section = this._createSection('⚛️', 'RigidBody', 'RigidBody');
+    const section = this._createSection('RigidBody', 'RigidBody', 'RigidBody');
     const body = section.querySelector('.component-body');
 
     // Body Type
@@ -1020,7 +1022,7 @@ export class Inspector {
 
   _renderCollider() {
     const col = this.entity.getComponent('Collider');
-    const section = this._createSection('🔲', 'Collider', 'Collider');
+    const section = this._createSection('Collider', 'Collider', 'Collider');
     const body = section.querySelector('.component-body');
 
     // Shape
@@ -1087,7 +1089,7 @@ export class Inspector {
   // =============================================
 
   _renderAudioListener() {
-    const section = this._createSection('🎧', 'AudioListener', 'AudioListener');
+    const section = this._createSection('AudioListener', 'AudioListener', 'AudioListener');
     const body = section.querySelector('.component-body');
 
     const info = document.createElement('div');
@@ -1099,7 +1101,7 @@ export class Inspector {
   }
 
   _renderAudioSource() {
-    const section = this._createSection('🎵', 'AudioSource', 'AudioSource');
+    const section = this._createSection('AudioSource', 'AudioSource', 'AudioSource');
     const body = section.querySelector('.component-body');
 
     const src = this.entity.getComponent('AudioSource');
@@ -1150,7 +1152,7 @@ export class Inspector {
   }
 
   _renderUICanvas() {
-    const section = this._createSection('🖼️', 'UICanvas', 'UICanvas');
+    const section = this._createSection('UICanvas', 'UICanvas', 'UICanvas');
     const body = section.querySelector('.component-body');
 
     const canvas = this.entity.getComponent('UICanvas');
@@ -1173,7 +1175,7 @@ export class Inspector {
 
   _renderGLBModel() {
     const glb = this.entity.getComponent('GLBModel');
-    const section = this._createSection('📦', 'GLB Model', 'GLBModel');
+    const section = this._createSection('add-box', 'GLB Model', 'GLBModel');
     const body = section.querySelector('.component-body');
 
     // File name
@@ -1276,7 +1278,7 @@ export class Inspector {
 
   _renderParticleEmitter() {
     const pe = this.entity.getComponent('ParticleEmitter');
-    const section = this._createSection('✨', 'Particle Emitter', 'ParticleEmitter');
+    const section = this._createSection('ParticleEmitter', 'Particle Emitter', 'ParticleEmitter');
     const body = section.querySelector('.component-body');
 
     // Preset selector
@@ -1379,7 +1381,7 @@ export class Inspector {
 
   _renderAnimator() {
     const anim = this.entity.getComponent('Animator');
-    const section = this._createSection('🎬', 'Animator', 'Animator');
+    const section = this._createSection('Animator', 'Animator', 'Animator');
     const body = section.querySelector('.component-body');
 
     // Type
@@ -1762,7 +1764,12 @@ export class Inspector {
 
     const btn = document.createElement('button');
     btn.className = 'add-component-btn';
-    btn.innerHTML = '<span>+</span> Add Component';
+    btn.textContent = 'Add Component';
+    btn.prepend(createIcon('Plus', { width: 14, height: 14 }));
+    btn.style.display = 'flex';
+    btn.style.alignItems = 'center';
+    btn.style.justifyContent = 'center';
+    btn.style.gap = '6px';
     btn.addEventListener('click', () => {
       this._showAddComponentMenu(btn);
     });
@@ -1779,12 +1786,12 @@ export class Inspector {
     menu.className = 'add-component-menu';
     menu.style.cssText = `
       position: absolute;
-      background: var(--bg-secondary);
+      background: var(--bg-panel-header);
       border: 1px solid var(--border-light);
       border-radius: var(--radius-md);
       padding: 4px 0;
       min-width: 180px;
-      max-height: 300px;
+      max-height: 250px;
       overflow-y: auto;
       z-index: 100;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
@@ -1792,37 +1799,37 @@ export class Inspector {
 
     const items = [];
     if (!this.entity.hasComponent('Script')) {
-      items.push({ label: '📝 Script', comp: 'Script' });
+      items.push({ label: 'Script', comp: 'Script' });
     }
     if (!this.entity.hasComponent('RigidBody')) {
-      items.push({ label: '⚛️ RigidBody', comp: 'RigidBody' });
+      items.push({ label: 'RigidBody', comp: 'RigidBody' });
     }
     if (!this.entity.hasComponent('Collider')) {
-      items.push({ label: '🔲 Collider', comp: 'Collider' });
+      items.push({ label: 'Collider', comp: 'Collider' });
     }
     if (!this.entity.hasComponent('AudioListener')) {
-      items.push({ label: '🎧 AudioListener', comp: 'AudioListener' });
+      items.push({ label: 'AudioListener', comp: 'AudioListener' });
     }
     if (!this.entity.hasComponent('AudioSource')) {
-      items.push({ label: '🎵 AudioSource', comp: 'AudioSource' });
+      items.push({ label: 'AudioSource', comp: 'AudioSource' });
     }
     if (!this.entity.hasComponent('UICanvas')) {
-      items.push({ label: '🖼️ UICanvas', comp: 'UICanvas' });
+      items.push({ label: 'UICanvas', comp: 'UICanvas' });
     }
     if (!this.entity.hasComponent('ParticleEmitter')) {
-      items.push({ label: '✨ ParticleEmitter', comp: 'ParticleEmitter' });
+      items.push({ label: 'ParticleEmitter', comp: 'ParticleEmitter' });
     }
     if (!this.entity.hasComponent('Animator')) {
-      items.push({ label: '🎬 Animator', comp: 'Animator' });
+      items.push({ label: 'Animator', comp: 'Animator' });
     }
     if (!this.entity.hasComponent('AnimationPlayer')) {
-      items.push({ label: '🎞️ AnimationPlayer', comp: 'AnimationPlayer' });
+      items.push({ label: 'AnimationPlayer', comp: 'AnimationPlayer' });
     }
     if (!this.entity.hasComponent('Camera')) {
-      items.push({ label: '🎥 Camera', comp: 'Camera' });
+      items.push({ label: 'Camera', comp: 'Camera' });
     }
     if (!this.entity.hasComponent('InstancedMeshRenderer')) {
-      items.push({ label: '🧱 InstancedMesh', comp: 'InstancedMeshRenderer' });
+      items.push({ label: 'InstancedMesh', comp: 'InstancedMeshRenderer' });
     }
 
     if (items.length === 0) {
@@ -1834,8 +1841,11 @@ export class Inspector {
 
     for (const item of items) {
       const row = document.createElement('div');
-      row.style.cssText = 'padding:6px 12px;cursor:pointer;font-size:12px;color:var(--text-primary);transition:background 0.15s;';
-      row.textContent = item.label;
+      row.style.cssText = 'padding:6px 12px;cursor:pointer;font-size:12px;color:var(--text-primary);transition:background 0.15s; display:flex; align-items:center; gap:6px;';
+      row.appendChild(createIcon(item.comp, { width: 14, height: 14, color: 'var(--text-secondary)' }));
+      const span = document.createElement('span');
+      span.textContent = item.label;
+      row.appendChild(span);
       row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-hover)'; });
       row.addEventListener('mouseleave', () => { row.style.background = ''; });
       row.addEventListener('click', () => {
@@ -1845,18 +1855,22 @@ export class Inspector {
       menu.appendChild(row);
     }
 
-    // Position menu (open above the button to avoid clipping at bottom)
+    // Position menu to open either downward or upward based on available space
     const rect = anchor.getBoundingClientRect();
-    const spaceAbove = rect.top;
-    const spaceBelow = window.innerHeight - rect.bottom;
     menu.style.left = rect.left + 'px';
-    if (spaceAbove > spaceBelow) {
-      // Open upward
+    
+    // Calculate if it should drop upward or downward
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    // If space below is less than max-height (250px) and there's more space above, open upward
+    if (spaceBelow < 250 && spaceAbove > spaceBelow) {
       menu.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+      menu.style.boxShadow = '0 -4px 12px rgba(0,0,0,0.4)';
     } else {
-      // Open downward
       menu.style.top = (rect.bottom + 4) + 'px';
     }
+    
     document.body.appendChild(menu);
 
     // Close on outside click
@@ -1905,7 +1919,7 @@ export class Inspector {
   // UI Helper Methods
   // =============================================
 
-  _createSection(icon, title, componentType = null) {
+  _createSection(iconName, title, componentType = null) {
     const section = document.createElement('div');
     section.className = 'component-section';
 
@@ -1914,12 +1928,13 @@ export class Inspector {
 
     const toggle = document.createElement('span');
     toggle.className = 'component-header-toggle open';
+    // Use an icon here too if possible? But toggle is fine since it's just a text arrow, wait, I can leave it.
     toggle.textContent = '▶';
     header.appendChild(toggle);
 
     const iconSpan = document.createElement('span');
     iconSpan.className = 'component-header-icon';
-    iconSpan.textContent = icon;
+    iconSpan.appendChild(createIcon(iconName, { width: 14, height: 14, color: 'var(--text-secondary)' }));
     header.appendChild(iconSpan);
 
     const titleSpan = document.createElement('span');
@@ -2031,7 +2046,7 @@ export class Inspector {
 
   _renderEnvironment() {
     const env = this.environment;
-    const section = this._createSection('🌍', 'Environment', null, false);
+    const section = this._createSection('Environment', 'Environment', null, false);
     const body = section.querySelector('.component-body');
 
     // Background type
@@ -2091,7 +2106,7 @@ export class Inspector {
       border-top: 1px solid var(--border-light); margin-top: 6px;
       font-weight: 600; letter-spacing: 0.5px;
     `;
-    fogLabel.textContent = '🌫️ FOG';
+    fogLabel.textContent = 'FOG';
     body.appendChild(fogLabel);
 
     body.appendChild(this._createCheckboxRow('Enabled', env.fogEnabled, (val) => {
